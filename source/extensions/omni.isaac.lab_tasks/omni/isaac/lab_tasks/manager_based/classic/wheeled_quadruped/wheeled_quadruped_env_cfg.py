@@ -14,6 +14,7 @@ from omni.isaac.lab.managers import RewardTermCfg as RewTerm
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.managers import TerminationTermCfg as DoneTerm
 from omni.isaac.lab.utils import configclass
+from omni.isaac.lab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 QUADRUPED_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
@@ -111,10 +112,16 @@ class ObservationsCfg:
         # observation terms (order preserved)
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
+        projected_gravity = ObsTerm(
+            func=mdp.projected_gravity,
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
+        joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self) -> None:
-            self.enable_corruption = False
+            self.enable_corruption = True
             self.concatenate_terms = True
 
     # observation groups
@@ -134,13 +141,20 @@ class RewardsCfg:
     # (1) Constant running reward
     alive = RewTerm(func=mdp.is_alive, weight=1.0)
     # (2) Failure penalty
+    ang_vel = RewTerm(func=mdp.ang_vel_xy_l2, weight=1.0)
     terminating = RewTerm(func=mdp.is_terminated, weight=-2.0)
+    # action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     # (3) Primary task: keep pole upright
     pole_pos = RewTerm(
         func=mdp.base_height_l2,
         weight=1.0,
         params={"asset_cfg": SceneEntityCfg("robot"), "target_height": 0.828},
         )
+    pole_orien = RewTerm(
+        func=mdp.flat_orientation_l2,
+        weight=1.0,
+        params={"asset_cfg": SceneEntityCfg("robot")}
+    )
 
 @configclass
 class TerminationsCfg:
@@ -157,7 +171,7 @@ class TerminationsCfg:
     '''
     robot_on_the_ground = DoneTerm(
         func=mdp.bad_orientation,
-        params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi/3},
+        params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi/9},
     )  
 
 @configclass
