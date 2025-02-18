@@ -18,7 +18,7 @@ from .wheeled_quadruped_env_cfg import WheeldQudrupedEnvCfg
 
 gym.register(
     id="Custom-Wheeled-Quadruped-v0",
-    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": WheeldQudrupedEnvCfg,
