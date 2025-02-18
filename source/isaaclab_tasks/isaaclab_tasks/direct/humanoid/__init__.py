@@ -31,7 +31,7 @@ gym.register(
 
 gym.register(
     id="Isaac-H1-Direct-v0",
-    entry_point="omni.isaac.lab_tasks.direct.humanoid:H1Env",
+    entry_point="isaaclab_tasks.direct.humanoid:H1Env",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": H1EnvCfg,
