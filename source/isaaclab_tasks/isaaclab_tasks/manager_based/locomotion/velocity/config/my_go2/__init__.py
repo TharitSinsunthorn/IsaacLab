@@ -14,7 +14,7 @@ from . import agents
 ########################## FLAT ##################################################################
 gym.register(
     id="My-Velocity-Flat-Unitree-Go2-v0",
-    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.my_flat:MyUnitreeGo2FlatEnvCfg",
@@ -25,7 +25,7 @@ gym.register(
 
 gym.register(
     id="My-Velocity-Flat-Unitree-Go2-Play-v0",
-    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.my_flat:MyUnitreeGo2FlatEnvCfg_PLAY",
@@ -38,7 +38,7 @@ gym.register(
 ########################## FLAT-LowG #############################################################
 gym.register(
     id="My-Velocity-Flat-Unitree-Go2-LowG-v0",
-    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.my_flat:LowGravityUnitreeGo2FlatEnvCfg",
@@ -49,7 +49,7 @@ gym.register(
 
 gym.register(
     id="My-Velocity-Flat-Unitree-Go2-LowG-Play-v0",
-    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.my_flat:LowGravityUnitreeGo2FlatEnvCfg_PLAY",
@@ -62,7 +62,7 @@ gym.register(
 ########################## ROUGH ##################################################################
 gym.register(
     id="My-Velocity-Rough-Unitree-Go2-v0",
-    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.rough_env_cfg:MyUnitreeGo2RoughEnvCfg",
@@ -73,7 +73,7 @@ gym.register(
 
 gym.register(
     id="My-Velocity-Rough-Unitree-Go2-Play-v0",
-    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.rough_env_cfg:MyUnitreeGo2RoughEnvCfg_PLAY",
@@ -86,7 +86,7 @@ gym.register(
 ########################## ROUGH-LowG #############################################################
 gym.register(
     id="My-Velocity-Rough-Unitree-Go2-LowG-v0",
-    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.rough_env_cfg:LowGravityUnitreeGo2RoughEnvCfg",
@@ -97,7 +97,7 @@ gym.register(
 
 gym.register(
     id="My-Velocity-Rough-Unitree-Go2-LowG-Play-v0",
-    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.rough_env_cfg:LowGravityUnitreeGo2RoughEnvCfg_PLAY",
