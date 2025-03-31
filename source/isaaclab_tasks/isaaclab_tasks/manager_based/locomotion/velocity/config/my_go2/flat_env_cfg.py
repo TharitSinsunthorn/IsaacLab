@@ -25,8 +25,8 @@ class MyUnitreeGo2FlatEnvCfg(MyUnitreeGo2RoughEnvCfg):
         self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
         self.rewards.feet_air_time.weight = 0.2 # default 0.125
         # self.rewards.undesired_contacts = None
-        self.rewards.undesired_contacts.params["sensor_cfg"].body_names = ".*_thigh"
-        self.rewards.undesired_contacts.weight = -1.0 # default -1.0
+        # self.rewards.undesired_contacts.params["sensor_cfg"].body_names = ".*_thigh"
+        # self.rewards.undesired_contacts.weight = -1.0 # default -1.0
         self.rewards.contact_forces = None
         # self.rewards.contact_forces.params["sensor_cfg"].body_names = ".*_foot"
         # self.rewards.contact_forces.weight = -0.25 # default -0.25
