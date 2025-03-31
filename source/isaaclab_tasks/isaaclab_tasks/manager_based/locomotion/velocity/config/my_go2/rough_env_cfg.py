@@ -11,7 +11,7 @@ from isaaclab_tasks.manager_based.locomotion.velocity.low_G_env_cfg import LowGr
 ##
 # Pre-defined configs
 ##
-from isaaclab_assets.unitree import UNITREE_GO2_CFG  # isort: skip
+from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
 
 @configclass
@@ -53,11 +53,11 @@ class MyUnitreeGo2RoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         self.rewards.track_ang_vel_z_exp.weight = 0.75 # default 0.75
         
         self.rewards.lin_vel_z_l2.weight = -1.00 # default -2.0
-        self.rewards.dof_torques_l2.weight = -1.0 # default -1.0e-5
+        self.rewards.dof_torques_l2.weight = -1.0e-5 # default -1.0e-5
         self.rewards.dof_acc_l2.weight = -2.5e-7 # default -2.5
         self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
         self.rewards.feet_air_time.weight = 0.01 # default 0.125
-        # self.rewards.undesired_contacts = None
+        self.rewards.undesired_contacts = None
         # self.rewards.undesired_contacts.params["sensor_cfg"].body_names = ".*_thigh"
         # self.rewards.undesired_contacts.weight = -1.0 # default -1.0
         self.rewards.contact_forces = None
