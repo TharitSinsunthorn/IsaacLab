@@ -32,7 +32,7 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 #TODO: Change robot's config parameterss
 QUADRUPED_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=os.environ['HOME'] + "/ilab_tharit/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/yonaka/model/moonbotY2"
+        usd_path=os.environ['HOME'] + "/ilab_tharit/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/yonaka/model/moonbotY3"
         ".usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -51,7 +51,7 @@ QUADRUPED_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.4),
+        pos=(0.0, 0.0, 0.35),
         joint_pos={
             ".*_hip_joint": 0.0,
             ".*_thigh_joint": -40.0 * math.pi / 180.0,
@@ -110,7 +110,7 @@ class MoonbotYonakaRoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         # rewards
         self.rewards.track_lin_vel_xy_exp.weight = 1.5 # default 1.5
         self.rewards.track_ang_vel_z_exp.weight = 0.75 # default 0.75
-        self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_calf"
+        self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
         self.rewards.feet_air_time.weight = 0.125 # default 0.125
         
         self.rewards.lin_vel_z_l2.weight = -1.0 # default -2.0
@@ -119,18 +119,20 @@ class MoonbotYonakaRoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         self.rewards.dof_acc_l2.weight = -2.5e-7 # default -2.5
         self.rewards.action_rate_l2.weight = -0.01 # default -0.01
         self.rewards.body_lin_acc_l2 = None # default -5.0e-4
-        self.rewards.flat_orientation_l2 = None
+        self.rewards.flat_orientation_l2.weight = -0.5 # default -2.5
 
         self.rewards.undesired_contacts = None
         self.rewards.contact_forces = None
         self.rewards.dof_pos_limits.weight = -1.0 # default 0.0
 
-        self.rewards.feet_contact_limit.params["sensor_cfg"].body_names = ".*_calf"
+        self.rewards.feet_contact_limit.params["sensor_cfg"].body_names = ".*_foot"
         self.rewards.feet_contact_limit.weight = -0.15
-        self.rewards.feet_stance.params["sensor_cfg"].body_names = ".*_calf"
+        self.rewards.feet_stance.params["sensor_cfg"].body_names = ".*_foot"
         self.rewards.feet_stance.weight = 0.2
 
-        self.rewards.foot_clearance.params["asset_cfg"].body_names = ".*_calf"
+        self.rewards.foot_clearance.params["asset_cfg"].body_names = ".*_foot"
+
+        self.rewards.foot_slip = None
 
         # terminations
         self.terminations.base_contact.params["sensor_cfg"].body_names = "base"
