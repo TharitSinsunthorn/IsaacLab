@@ -101,7 +101,7 @@ class CommandsCfg:
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-0.5, 0.5), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+            lin_vel_x=(-0.7, 0.7), lin_vel_y=(-0.5, 0.5), ang_vel_z=(-0.7, 0.7), heading=(-math.pi, math.pi)
         ),
     )
 
@@ -240,25 +240,25 @@ class RewardsCfg:
             "std": math.sqrt(0.25)
         }
     )
-    feet_air_time = RewTerm(
-        func=mdp.feet_air_time,
-        weight=0.125,
-        params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*FOOT"),
-            "command_name": "base_velocity",
-            "threshold": 1.0,
-        },
-    )
     # feet_air_time = RewTerm(
-    #     func=mdp_go2.air_time_reward,
-    #     weight=5.0,
+    #     func=mdp.feet_air_time,
+    #     weight=0.125,
     #     params={
-    #         "mode_time": 0.3,
-    #         "velocity_threshold": 0.5,
-    #         "asset_cfg": SceneEntityCfg("robot"),
     #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+    #         "command_name": "base_velocity",
+    #         "threshold": 1.0,
     #     },
     # )
+    feet_air_time = RewTerm(
+        func=mdp_go2.air_time_reward,
+        weight=5.0,
+        params={
+            "mode_time": 0.3,
+            "velocity_threshold": 0.2,
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+        },
+    )
 
     # -- penalties
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
@@ -276,8 +276,8 @@ class RewardsCfg:
         func=mdp.contact_forces,
         weight=-0.25,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*FOOT"),
-            "threshold": -1.0,
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "threshold": 80.0,
         },
     )
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
@@ -304,21 +304,13 @@ class RewardsCfg:
         }    
     )
 
-    # feet_slides = RewTerm(
-    #     func=mdp.feet_slide, 
-    #     weight=-0.1,
-    #     params={
-    #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-    #     },
-    # )
-
     foot_slip = RewTerm(
         func=mdp_go2.foot_slip_penalty,
         weight=-0.5,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "threshold": 1.0,
+            "threshold": 70.0,
         },
     )
 
@@ -328,7 +320,7 @@ class RewardsCfg:
         params={
             "std": 0.05,
             "tanh_mult": 2.0,
-            "target_height": 0.1,
+            "target_height": 0.2, # last edit
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
         },
     )
