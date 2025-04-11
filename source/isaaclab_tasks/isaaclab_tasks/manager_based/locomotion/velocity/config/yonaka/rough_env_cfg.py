@@ -5,7 +5,6 @@
 
 from isaaclab.utils import configclass
 
-from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg
 from isaaclab_tasks.manager_based.locomotion.velocity.my_velocity_env_cfg import MyLocomotionVelocityRoughEnvCfg
 
 ##
@@ -16,21 +15,9 @@ import math
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg, DCMotorCfg
 from isaaclab.assets import ArticulationCfg
-from isaaclab.assets import AssetBaseCfg
-from isaaclab.envs import ManagerBasedRLEnvCfg
-from isaaclab.envs import mdp
-from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.managers import EventTermCfg as EventTerm
-from isaaclab.managers import ObservationGroupCfg as ObsGroup
-from isaaclab.managers import ObservationTermCfg as ObsTerm
-from isaaclab.managers import RewardTermCfg as RewTerm
-from isaaclab.managers import SceneEntityCfg
-from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.utils import configclass
-from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-#TODO: Change robot's config parameterss
-QUADRUPED_CFG = ArticulationCfg(
+YONAKA_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
         usd_path=os.environ['HOME'] + "/ilab_tharit/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/yonaka/model/moonbotY3"
         ".usd",
@@ -66,7 +53,7 @@ QUADRUPED_CFG = ArticulationCfg(
             effort_limit=200.0,
             saturation_effort=200.0,
             velocity_limit=21.0,
-            stiffness=300.0,
+            stiffness=250.0,
             damping=0.5,
             friction=0.0,
         ),
@@ -79,8 +66,9 @@ class MoonbotYonakaRoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         # post init of parent
         super().__post_init__()
 
-        self.scene.robot = QUADRUPED_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.scene.robot = YONAKA_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/base"
+        self.scene.height_scanner.pattern_cfg.size = [1.2, 1.2]
         # scale down the terrains because the robot is small
         self.scene.terrain.terrain_generator.sub_terrains["boxes"].grid_height_range = (0.025, 0.1)
         self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_range = (0.01, 0.06)
@@ -110,29 +98,21 @@ class MoonbotYonakaRoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         # rewards
         self.rewards.track_lin_vel_xy_exp.weight = 1.5 # default 1.5
         self.rewards.track_ang_vel_z_exp.weight = 0.75 # default 0.75
-        self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
         self.rewards.feet_air_time.weight = 0.125 # default 0.125
-        
         self.rewards.lin_vel_z_l2.weight = -1.0 # default -2.0
-        self.rewards.ang_vel_xy_l2.weight = -0.0 # default -0.05
+        self.rewards.ang_vel_xy_l2 = None # default -0.05
         self.rewards.dof_torques_l2.weight = -1.0e-5 # default -1.0e-5
         self.rewards.dof_acc_l2.weight = -2.5e-7 # default -2.5
         self.rewards.action_rate_l2.weight = -0.01 # default -0.01
         self.rewards.body_lin_acc_l2 = None # default -5.0e-4
-        self.rewards.flat_orientation_l2.weight = -0.5 # default -2.5
-
+        self.rewards.flat_orientation_l2.weight = -1.0 # default -2.5
         self.rewards.undesired_contacts = None
-        self.rewards.contact_forces = None
+        self.rewards.contact_forces.weight = -0.001 # default -0.25s
         self.rewards.dof_pos_limits.weight = -1.0 # default 0.0
-
-        self.rewards.feet_contact_limit.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.feet_contact_limit.weight = -0.15
-        self.rewards.feet_stance.params["sensor_cfg"].body_names = ".*_foot"
+        self.rewards.feet_contact_limit.weight = -0.3
         self.rewards.feet_stance.weight = 0.2
-
-        self.rewards.foot_clearance.params["asset_cfg"].body_names = ".*_foot"
-
-        self.rewards.foot_slip = None
+        self.rewards.foot_clearance.weight = 0.5
+        self.rewards.foot_slip.weight = -0.02 ##EDITEDz
 
         # terminations
         self.terminations.base_contact.params["sensor_cfg"].body_names = "base"

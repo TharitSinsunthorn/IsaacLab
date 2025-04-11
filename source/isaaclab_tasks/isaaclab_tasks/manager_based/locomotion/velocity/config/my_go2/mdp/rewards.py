@@ -298,7 +298,7 @@ def crawl_balance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) ->
     penalty = torch.sum(feet_in_air, dim=1) - 1  # Only one foot should be in the air
     penalty = torch.clamp(penalty, min=0)  # Only apply when > 1 foot is in air
 
-    return -penalty  # Negative reward (penalty)
+    return penalty  # Negative reward (penalty)
 
 
 def crawl_reward(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, sensor_cfg: SceneEntityCfg, max_vel: float) -> torch.Tensor:
@@ -318,4 +318,23 @@ def crawl_reward(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, sensor_cfg: 
     stability_reward = torch.sum(feet_contact, dim=1) >= 3  # Reward when 3+ feet touch the ground
 
     return forward_reward + 0.2 * stability_reward - 0.1 * air_penalty  # Adjust weights
+
+
+def swing_impact_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize high contact forces when a foot lands on the ground (i.e., swing-to-stance transition)."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+    # Get first contact indicator: 1 if just made contact this step, 0 otherwise
+    first_contact = contact_sensor.compute_first_contact(env.step_dt)[:, sensor_cfg.body_ids]
+
+    # Get current contact forces
+    contact_forces = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
+    contact_force_magnitudes = torch.norm(contact_forces, dim=-1)
+
+    # Penalize only on landing (first contact) and above threshold
+    violation = (contact_force_magnitudes - threshold).clip(min=0.0)
+    impact_penalty = violation * first_contact  # only penalize at first contact
+
+    return -torch.sum(impact_penalty, dim=1)
+
 
