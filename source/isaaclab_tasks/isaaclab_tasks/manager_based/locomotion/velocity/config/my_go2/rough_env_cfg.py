@@ -60,6 +60,7 @@ class MyUnitreeGo2RoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         self.rewards.dof_acc_l2.weight = -2.5e-7 # default -2.5
         self.rewards.action_rate_l2.weight = -0.01 # default -0.01
         self.rewards.body_lin_acc_l2 = None # default -5.0e-4
+        self.rewards.flat_orientation_l2 = None
 
         self.rewards.undesired_contacts = None
         # self.rewards.undesired_contacts.params["sensor_cfg"].body_names = ".*_thigh"
@@ -68,8 +69,9 @@ class MyUnitreeGo2RoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         # self.rewards.contact_forces.params["sensor_cfg"].body_names = ".*_foot"
         # self.rewards.contact_forces.weight = -0.25 # default -0.25
         self.rewards.dof_pos_limits.weight = -1.0 # default 0.0
-        self.rewards.feet_contact_limit.weight = 0.05
-        self.rewards.feet_stance.weight = 0.1
+
+        self.rewards.feet_contact_limit.weight = -0.15
+        self.rewards.feet_stance.weight = 0.2
         # self.rewards.feet_slides.params["sensor_cfg"].body_names = ".*_foot"
         # self.rewards.feet_slides.weight = -0.1 # default -0.1
 
@@ -147,7 +149,7 @@ class LowGravityUnitreeGo2RoughEnvCfg(LowGravityLocomotionVelocityRoughEnvCfg):
         self.rewards.dof_acc_l2.weight = -2.5e-7 # default -2.5
         self.rewards.action_rate_l2.weight = -0.005 # default -0.01
         self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.feet_air_time.weight = 1.0 # default 0.125
+        self.rewards.feet_air_time.weight = -0.1 # default 0.125
         self.rewards.undesired_contacts = None
         # self.rewards.undesired_contacts.params["sensor_cfg"].body_names = ".*_thigh"
         # self.rewards.undesired_contacts.weight = -0.015 # default -1.0
@@ -159,10 +161,6 @@ class LowGravityUnitreeGo2RoughEnvCfg(LowGravityLocomotionVelocityRoughEnvCfg):
         self.rewards.dof_pos_limits = None
         # self.rewards.dof_pos_limits.weight = -0.0 # default 0.0
         
-        # self.rewards.feet_slides = None
-        self.rewards.feet_slides.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.feet_air_time.weight = -0.1 # default -0.1
-
         # terminations
         self.terminations.base_contact.params["sensor_cfg"].body_names = "base"
 
