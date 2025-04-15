@@ -54,3 +54,27 @@ gym.register(
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
     },
 )
+
+########################## ROUGH-LowG #############################################################
+gym.register(
+    id="Isaac-Velocity-Rough-Moonbot-Yonaka-LowG-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.lowg_env_cfg:LowGravityMoonbotYonakaRoughEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:LowGravityMoonbotYonakaRoughPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Velocity-Rough-Moonbot-Yonaka-LowG-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.lowg_env_cfg:LowGravityMoonbotYonakaRoughEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:LowGravityMoonbotYonakaRoughPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
+    },
+)
+########################## ROUGH-LowG #############################################################
