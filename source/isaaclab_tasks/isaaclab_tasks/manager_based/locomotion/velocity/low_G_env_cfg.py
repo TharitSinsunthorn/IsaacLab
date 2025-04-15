@@ -23,7 +23,9 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
+import isaaclab.terrains as terrain_gen
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
+import isaaclab_tasks.manager_based.locomotion.velocity.config.my_go2.mdp as mdp_go2
 
 ##
 # Pre-defined configs
@@ -34,7 +36,32 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 ##
 # Scene definition
 ##
-
+COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=9,
+    num_cols=21,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    difficulty_range=(0.0, 1.0),
+    use_cache=False,
+    sub_terrains={
+        # "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.2),
+        "boxes": terrain_gen.MeshRandomGridTerrainCfg(
+            proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0
+        ),
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=0.2, noise_range=(0.02, 0.05), noise_step=0.02, border_width=0.25
+        ),
+        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
+        ),
+        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
+            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
+        ),
+    },
+)
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -44,14 +71,14 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
-        terrain_generator=ROUGH_TERRAINS_CFG,
-        max_init_terrain_level=5,
+        terrain_generator=COBBLESTONE_ROAD_CFG,
+        max_init_terrain_level=COBBLESTONE_ROAD_CFG.num_rows - 1,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
-            static_friction=1.0,
-            dynamic_friction=1.0,
+            static_friction=0.8,
+            dynamic_friction=0.8,
         ),
         visual_material=sim_utils.MdlFileCfg(
             mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
@@ -100,7 +127,7 @@ class CommandsCfg:
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+            lin_vel_x=(-0.7, 0.7), lin_vel_y=(-0.5, 0.5), ang_vel_z=(-0.7, 0.7), heading=(-math.pi, math.pi)
         ),
     )
 
@@ -123,7 +150,6 @@ class ObservationsCfg:
         # observation terms (order preserved)
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
-        # base_orien = ObsTerm(func=mdp.root_quat_w, noise=Unoise(n_min=-0.2, n_max=0.2))
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
             noise=Unoise(n_min=-0.05, n_max=0.05),
@@ -225,27 +251,48 @@ class RewardsCfg:
 
     # -- task
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_lin_vel_xy_exp, 
+        weight=1.0, 
+        params={
+            "command_name": "base_velocity",
+            "std": math.sqrt(0.25)
+        }
     )
     track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_ang_vel_z_exp, 
+        weight=0.5, 
+        params={
+            "command_name": "base_velocity",
+            "std": math.sqrt(0.25)
+        }
     )
+    # feet_air_time = RewTerm(
+    #     func=mdp.feet_air_time,
+    #     weight=0.125,
+    #     params={
+    #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+    #         "command_name": "base_velocity",
+    #         "threshold": 1.0,
+    #     },
+    # )
+    feet_air_time = RewTerm(
+        func=mdp_go2.air_time_reward,
+        weight=5.0,
+        params={
+            "mode_time": 0.3,
+            "velocity_threshold": 0.5,
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+        },
+    )
+
     # -- penalties
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
-    body_lin_acc_l2 = RewTerm(func=mdp.body_lin_acc_l2, weight=-5.0e-4)
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    feet_air_time = RewTerm(
-        func=mdp.feet_air_time,
-        weight=0.125,
-        params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*FOOT"),
-            "command_name": "base_velocity",
-            "threshold": 1.0,
-        },
-    )
+    
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
@@ -253,23 +300,66 @@ class RewardsCfg:
     )
     contact_forces = RewTerm(
         func=mdp.contact_forces,
-        weight=-0.02,
+        weight=-0.25,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*FOOT"),
-            "threshold": -1.0,
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "threshold": 30.0,
         },
     )
-    # -- optional penalties
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
-    feet_slides = RewTerm(
-        func=mdp.feet_slide, 
-        weight=-0.1,
+    flat_orientation_l2 = RewTerm(
+        func=mdp.flat_orientation_l2,
+        weight=0.0
+    )
+    dof_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits,
+        weight=0.0
+    )
+    body_lin_acc_l2 = RewTerm(
+        func=mdp.body_lin_acc_l2,
+        weight=-5.0e-4
+    )
+    feet_contact_limit = RewTerm(
+        func=mdp_go2.crawl_balance_penalty, 
+        weight=0.1,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*FOOT"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+        }    
+    )
+    feet_stance = RewTerm(
+        func=mdp_go2.crawl_stance_reward,
+        weight=0.1,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "mode_time": 9.0
+        }    
+    )
+    foot_slip = RewTerm(
+        func=mdp_go2.foot_slip_penalty,
+        weight=-0.5,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "threshold": 20.0,
         },
     )
-
+    foot_clearance = RewTerm(
+        func=mdp_go2.foot_clearance_reward,
+        weight=0.5,
+        params={
+            "std": 0.05,
+            "tanh_mult": 2.0,
+            "target_height": 0.2, # last edit
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+        },
+    )
+    swing_impact = RewTerm(
+        func=mdp_go2.swing_impact_penalty,
+        weight=-0.5,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "threshold": 50.0,
+        },
+    )
 
 @configclass
 class TerminationsCfg:
@@ -282,7 +372,7 @@ class TerminationsCfg:
     )
     robot_on_the_ground = DoneTerm(
         func=mdp.bad_orientation,
-        params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi/4},
+        params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi},
     )  
 
 
@@ -322,7 +412,8 @@ class LowGravityLocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
         # simulation settings
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
-        self.sim.physics_material = self.scene.terrain.physics_material
+        self.sim.physics_material.friction_combine_mode = "multiply"
+        self.sim.physics_material.restitution_combine_mode = "multiply"
         self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
         self.sim.gravity = (0.0, 0.0, -1.62)
         # update sensor update periods
