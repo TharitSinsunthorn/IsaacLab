@@ -335,6 +335,6 @@ def swing_impact_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: S
     violation = (contact_force_magnitudes - threshold).clip(min=0.0)
     impact_penalty = violation * first_contact  # only penalize at first contact
 
-    return -torch.sum(impact_penalty, dim=1)
+    return torch.sum(impact_penalty, dim=1)
 
 
