@@ -89,7 +89,7 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.rough_env_cfg:LowGravityUnitreeGo2RoughEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.lowg_env_cfg:LowGravityUnitreeGo2RoughEnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:LowGravityUnitreeGo2RoughPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
     },
@@ -100,7 +100,7 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.rough_env_cfg:LowGravityUnitreeGo2RoughEnvCfg_PLAY",
+        "env_cfg_entry_point": f"{__name__}.lowg_env_cfg:LowGravityUnitreeGo2RoughEnvCfg_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:LowGravityUnitreeGo2RoughPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
     },
