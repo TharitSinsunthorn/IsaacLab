@@ -36,11 +36,11 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 ##
 # Scene definition
 ##
-COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
+LUNAR_DUMMY_CFG = terrain_gen.TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
-    num_rows=9,
-    num_cols=21,
+    num_rows=10,
+    num_cols=20,
     horizontal_scale=0.1,
     vertical_scale=0.005,
     slope_threshold=0.75,
@@ -48,17 +48,36 @@ COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
     use_cache=False,
     sub_terrains={
         # "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.2),
-        "boxes": terrain_gen.MeshRandomGridTerrainCfg(
-            proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0
+        # "boxes": terrain_gen.MeshRandomGridTerrainCfg(
+        #     proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0
+        # ),
+        "repeated": terrain_gen.MeshRepeatedBoxesTerrainCfg(
+            proportion=0.1,
+            platform_width=0.5,
+            max_height_noise=0.2,
+            object_params_start=terrain_gen.MeshRepeatedBoxesTerrainCfg.ObjectCfg(
+                num_objects=20,
+                height=0.1,
+                size=(0.3, 0.5),
+                max_yx_angle=10.0,
+                degrees=True
+            ),
+            object_params_end=terrain_gen.MeshRepeatedBoxesTerrainCfg.ObjectCfg(
+                num_objects=50,
+                height=0.2,
+                size=(0.5, 0.5),
+                max_yx_angle=30.0,
+                degrees=True
+            )
         ),
         "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=0.2, noise_range=(0.02, 0.05), noise_step=0.02, border_width=0.25
+            proportion=0.2, noise_range=(0.05, 0.1), noise_step=0.05, border_width=0.25
         ),
         "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
-            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
+            proportion=0.2, slope_range=(0.0, 0.5), platform_width=1.0, border_width=0.25
         ),
         "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
-            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
+            proportion=0.2, slope_range=(0.0, 0.5), platform_width=1.0, border_width=0.25
         ),
     },
 )
@@ -71,8 +90,8 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
-        terrain_generator=COBBLESTONE_ROAD_CFG,
-        max_init_terrain_level=COBBLESTONE_ROAD_CFG.num_rows - 1,
+        terrain_generator=LUNAR_DUMMY_CFG,
+        max_init_terrain_level=LUNAR_DUMMY_CFG.num_rows - 1,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -127,7 +146,7 @@ class CommandsCfg:
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-0.7, 0.7), lin_vel_y=(-0.5, 0.5), ang_vel_z=(-0.7, 0.7), heading=(-math.pi, math.pi)
+            lin_vel_x=(-0.6, 0.8), lin_vel_y=(-0.5, 0.5), ang_vel_z=(-0.2, 0.2), heading=(-math.pi, math.pi)
         ),
     )
 
@@ -285,38 +304,52 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
         },
     )
+    foot_clearance = RewTerm(
+        func=mdp_go2.foot_clearance_reward,
+        weight=0.5,
+        params={
+            "std": 0.05,
+            "tanh_mult": 2.0,
+            "target_height": 0.2, # last edit
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+        },
+    )
 
     # -- penalties
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
+    flat_orientation_l2 = RewTerm(
+        func=mdp.flat_orientation_l2,
+        weight=0.0
+    )
+    body_lin_acc_l2 = RewTerm(
+        func=mdp.body_lin_acc_l2,
+        weight=-5.0e-4
+    )
+
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
+    dof_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits,
+        weight=0.0
+    )
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*THIGH"), "threshold": 1.0},
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"),
+            "threshold": 10.0
+        },
     )
     contact_forces = RewTerm(
         func=mdp.contact_forces,
         weight=-0.25,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "threshold": 30.0,
+            "threshold": 50.0,
         },
-    )
-    flat_orientation_l2 = RewTerm(
-        func=mdp.flat_orientation_l2,
-        weight=0.0
-    )
-    dof_pos_limits = RewTerm(
-        func=mdp.joint_pos_limits,
-        weight=0.0
-    )
-    body_lin_acc_l2 = RewTerm(
-        func=mdp.body_lin_acc_l2,
-        weight=-5.0e-4
     )
     feet_contact_limit = RewTerm(
         func=mdp_go2.crawl_balance_penalty, 
@@ -339,17 +372,7 @@ class RewardsCfg:
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "threshold": 20.0,
-        },
-    )
-    foot_clearance = RewTerm(
-        func=mdp_go2.foot_clearance_reward,
-        weight=0.5,
-        params={
-            "std": 0.05,
-            "tanh_mult": 2.0,
-            "target_height": 0.2, # last edit
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+            "threshold": 50.0,
         },
     )
     swing_impact = RewTerm(
