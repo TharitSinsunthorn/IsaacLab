@@ -300,24 +300,30 @@ def crawl_balance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) ->
 
     return penalty  # Negative reward (penalty)
 
-
-def crawl_reward(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, sensor_cfg: SceneEntityCfg, max_vel: float) -> torch.Tensor:
-    asset: RigidObject = env.scene[asset_cfg.name]
+def crawl_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    target_stance_ratio: float = 0.75,
+    tolerance: float = 0.05,
+) -> torch.Tensor:
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
 
-    # 1️⃣ Encourage Forward Motion
-    lin_vel = torch.norm(asset.data.root_lin_vel_b[:, :2], dim=1)
-    forward_reward = torch.exp(-torch.square(lin_vel - max_vel) / 0.5)  # Reward moving close to target velocity
+    # Compute stance and swing times
+    contact_time = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids]  # shape: (num_envs, num_feet)
+    air_time = contact_sensor.data.current_air_time[:, sensor_cfg.body_ids]
 
-    # 2️⃣ Penalize Too Many Feet in Air (Soft)
-    feet_in_air = (contact_sensor.data.current_air_time[:, sensor_cfg.body_ids] > 0).float()
-    air_penalty = torch.exp(-torch.sum(feet_in_air, dim=1))  # Soft penalty
+    # Avoid division by zero
+    gait_cycle_time = contact_time + air_time + 1e-5
+    stance_ratio_per_foot = contact_time / gait_cycle_time
 
-    # 3️⃣ Reward Stability (3+ Feet in Contact)
-    feet_contact = (contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids] > 0).float()
-    stability_reward = torch.sum(feet_contact, dim=1) >= 3  # Reward when 3+ feet touch the ground
+    # Average stance ratio across feet
+    stance_ratio = torch.mean(stance_ratio_per_foot, dim=1)
 
-    return forward_reward + 0.2 * stability_reward - 0.1 * air_penalty  # Adjust weights
+    # Reward based on how close stance ratio is to target
+    stance_reward = torch.exp(-torch.square(stance_ratio - target_stance_ratio) / tolerance)
+
+    return stance_reward
+
 
 
 def swing_impact_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:

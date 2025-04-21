@@ -48,9 +48,10 @@ class LowGravityUnitreeGo2RoughEnvCfg(LowGravityLocomotionVelocityRoughEnvCfg):
         # --task
         self.rewards.track_lin_vel_xy_exp.weight = 2.0 # default 1.5
         self.rewards.track_ang_vel_z_exp.weight = 0.75 # default 0.75
-        self.rewards.feet_air_time.weight = 0.125 # default 0.125
+        self.rewards.feet_air_time = None # default 0.125
         self.rewards.foot_clearance.weight = 0.5
         self.rewards.feet_stance = None
+        self.rewards.crawl_reward.weight = 0.2
         
         # -- penalties
         # body related
