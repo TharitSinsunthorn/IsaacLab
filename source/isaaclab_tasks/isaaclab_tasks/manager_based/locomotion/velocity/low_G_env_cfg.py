@@ -304,6 +304,14 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
         },
     )
+    feet_stance = RewTerm(
+        func=mdp_go2.crawl_stance_reward,
+        weight=0.1,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "mode_time": 9.0
+        }    
+    )
     foot_clearance = RewTerm(
         func=mdp_go2.foot_clearance_reward,
         weight=0.5,
@@ -314,6 +322,14 @@ class RewardsCfg:
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
         },
     )
+    crawl_reward = RewTerm(
+        func=mdp_go2.crawl_reward,
+        weight=0.1,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+        }    
+    )
+    
 
     # -- penalties
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
@@ -353,17 +369,9 @@ class RewardsCfg:
     )
     feet_contact_limit = RewTerm(
         func=mdp_go2.crawl_balance_penalty, 
-        weight=0.1,
+        weight=-0.1,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-        }    
-    )
-    feet_stance = RewTerm(
-        func=mdp_go2.crawl_stance_reward,
-        weight=0.1,
-        params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "mode_time": 9.0
         }    
     )
     foot_slip = RewTerm(
