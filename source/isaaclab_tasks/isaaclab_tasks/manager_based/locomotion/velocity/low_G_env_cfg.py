@@ -298,7 +298,7 @@ class RewardsCfg:
         func=mdp_go2.air_time_reward,
         weight=5.0,
         params={
-            "mode_time": 0.3,
+            "mode_time": 0.2,
             "velocity_threshold": 0.5,
             "asset_cfg": SceneEntityCfg("robot"),
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
@@ -345,12 +345,20 @@ class RewardsCfg:
 
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
+    dof_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-0.1)
     dof_pos_limits = RewTerm(
         func=mdp.joint_pos_limits,
         weight=0.0
     )
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     
+    contact_force_var = RewTerm(
+        func=mdp_go2.contact_force_variance_penalty,
+        weight=-0.1,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+        },
+    )
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
@@ -403,7 +411,7 @@ class TerminationsCfg:
     )
     robot_on_the_ground = DoneTerm(
         func=mdp.bad_orientation,
-        params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi},
+        params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi/2},
     )  
 
 
