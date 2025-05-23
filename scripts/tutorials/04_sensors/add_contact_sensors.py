@@ -30,6 +30,7 @@ import os
 import isaaclab.sim as sim_utils
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg, ArticulationCfg
 from isaaclab.actuators import ImplicitActuatorCfg, DCMotorCfg
+from isaaclab.managers import SceneEntityCfg
 from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
 from isaaclab.utils import configclass
@@ -95,7 +96,7 @@ class ContactSensorSceneCfg(InteractiveSceneCfg):
     )
 
     # robot
-    robot = YONAKA_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
     # Rigid Object
     # cube = RigidObjectCfg(
@@ -116,7 +117,7 @@ class ContactSensorSceneCfg(InteractiveSceneCfg):
         update_period=0.02,
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
         attach_yaw_only=True,
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.2, 1.2]),
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
         debug_vis=True,
         mesh_prim_paths=["/World/defaultGroundPlane"],
     )
@@ -126,6 +127,7 @@ class ContactSensorSceneCfg(InteractiveSceneCfg):
         update_period=0.0,
         history_length=6,
         debug_vis=True,
+        track_air_time=True,
         filter_prim_paths_expr=["{ENV_REGEX_NS}/Cube"],
     )
 
@@ -192,23 +194,26 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
         scene.update(sim_dt)
 
         # print information from the sensors
-        print("-------------------------------")
-        print(scene["contact_forces_LF"])
-        print("Received force matrix of: ", scene["contact_forces_LF"].data.force_matrix_w)
-        print("Received contact force of: ", scene["contact_forces_LF"].data.net_forces_w)
-        print("-------------------------------")
-        print(scene["contact_forces_RF"])
-        print("Received force matrix of: ", scene["contact_forces_RF"].data.force_matrix_w)
-        print("Received contact force of: ", scene["contact_forces_RF"].data.net_forces_w)
-        print("-------------------------------")
-        print(scene["contact_forces_H"])
-        print("Received force matrix of: ", scene["contact_forces_H"].data.force_matrix_w)
-        print("Received contact force of: ", scene["contact_forces_H"].data.net_forces_w)
+        # print("-------------------------------")
+        # print(scene["contact_forces_LF"])
+        # print("Received force matrix of: ", scene["contact_forces_LF"].data.force_matrix_w)
+        # print("Received contact force of: ", scene["contact_forces_LF"].data.net_forces_w)
+        # print("-------------------------------")
+        # print(scene["contact_forces_RF"])
+        # print("Received force matrix of: ", scene["contact_forces_RF"].data.force_matrix_w)
+        # print("Received contact force of: ", scene["contact_forces_RF"].data.net_forces_w)
+        # print("-------------------------------")
+        # print(scene["contact_forces_H"])
+        # print("Received force matrix of: ", scene["contact_forces_H"].data.force_matrix_w)
+        # print("Received contact force of: ", scene["contact_forces_H"].data.net_forces_w)
 
-        net_contact_forces = scene["contact_forces_H"].data.net_forces_w_history
-        violation = torch.max(torch.norm(net_contact_forces, dim=-1), dim=1)[0]
-        print(f"Violations: {violation}")
-
+        # net_contact_forces = scene["contact_forces_H"].data.net_forces_w_history
+        # violation = torch.max(torch.norm(net_contact_forces, dim=-1), dim=1)[0]
+        # print(f"Violations: {violation}")
+        last_air_time = scene["contact_forces_LF"].data.last_air_time[:,:]
+        last_contact_time = scene["contact_forces_LF"].data.last_contact_time[:,:]
+        print(f"Last air time: {last_air_time}")
+        print(f"Last contact time: {last_contact_time}")
 
 def main():
     """Main function."""
