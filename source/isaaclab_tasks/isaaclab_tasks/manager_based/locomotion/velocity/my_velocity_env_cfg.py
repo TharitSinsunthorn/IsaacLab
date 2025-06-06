@@ -4,10 +4,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import math
+import numpy as np
+import torch
 from dataclasses import MISSING
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -101,7 +104,7 @@ class CommandsCfg:
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-0.7, 0.7), lin_vel_y=(-0.5, 0.5), ang_vel_z=(-0.7, 0.7), heading=(-math.pi, math.pi)
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-0.7, 0.7), heading=(-math.pi, math.pi)
         ),
     )
 
@@ -110,8 +113,51 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
 
-    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True)
-    # joint_pos = mdp_go2.CPGJointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True)
+    # joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.25, use_default_offset=True)
+
+    quadruped_action_cfg = mdp_go2.CPGQuadrupedActionCfg(
+        asset_name="robot",
+        controller=DifferentialIKControllerCfg(
+            command_type="position",
+            use_relative_mode=False,
+            ik_method="dls",
+            ik_params={"lambda_val": 0.1},
+        ),
+        legs={
+            "FL": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
+                joint_names=["FL_hip_joint", "FL_thigh_joint", "FL_calf_joint"],
+                body_name="FL_foot",
+                init_theta=np.random.uniform(-math.pi, math.pi),
+                hip_offset=(0.2, 0.142, 0.0)
+            ),
+            "FR": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
+                joint_names=["FR_hip_joint", "FR_thigh_joint", "FR_calf_joint"],
+                body_name="FR_foot",
+                init_theta=np.random.uniform(-math.pi, math.pi),
+                hip_offset=(0.2, -0.142, 0.0)
+            ),
+            "RL": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
+                joint_names=["RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"],
+                body_name="RL_foot",
+                init_theta=np.random.uniform(-math.pi, math.pi),
+                hip_offset=(-0.23, 0.142, 0.0)
+            ),
+            "RR": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
+                joint_names=["RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"],
+                body_name="RR_foot",
+                init_theta=np.random.uniform(-math.pi, math.pi),
+                hip_offset=(-0.23, -0.142, 0.0)
+            )
+        },
+        # You can override global CPG parameters here
+        global_h=np.random.uniform(0.25,0.4), # Start height
+        global_gc=0.16, # Ground clearance for swing
+        global_gp=0.02, # Ground penetration for stance
+        global_d_step=0.4, # Step size scale
+        mu_range=(1.0, 2.0), # RL agent can choose mu between 0.8 and 1.8
+        omega_range=(0.0, 15.0), # RL agent can choose frequency
+        scale = 1.0
+    )
 
 
 @configclass
@@ -132,7 +178,22 @@ class ObservationsCfg:
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
+        contact_state = ObsTerm(
+            func=mdp_go2.contact_bool,
+            params={
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+                "force_threshold": 1.0,
+            },
+        )
+        # contact_force_vector = ObsTerm(
+        #     func=mdp_go2.contact_force, # Your custom function
+        #     params={
+        #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")
+        #     },
+        #     noise= Unoise(n_min=-0.1, n_max=0.1),
+        # )
         actions = ObsTerm(func=mdp.last_action)
+        cpg_state = ObsTerm(func=mdp_go2.get_cpg_internal_states)
         height_scan = ObsTerm(
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
@@ -172,6 +233,16 @@ class EventCfg:
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "mass_distribution_params": (-5.0, 5.0),
             "operation": "add",
+        },
+    )
+
+    random_joint_gains = EventTerm(
+        func=mdp.randomize_actuator_gains,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+            "stiffness_distribution_params": (55, 100),
+            "damping_distribution_params": (0.7, 2.5),
         },
     )
 
@@ -297,13 +368,14 @@ class RewardsCfg:
 
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
+    dof_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-0.01)
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"),
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_thigh"),
                 "threshold": 1.0
         },
     )
@@ -331,6 +403,18 @@ class RewardsCfg:
             "threshold": 70.0,
         },
     )
+    feet_sync = RewTerm(
+        func=mdp_go2.GaitReward,
+        weight=10.0,
+        params={
+            "std": 0.1,
+            "max_err": 0.2,
+            "velocity_threshold": 0.0,
+            "synced_feet_pair_names": (("FL_foot", "RR_foot"), ("FR_foot", "RL_foot")),
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sensor_cfg": SceneEntityCfg("contact_forces"),
+        },
+    )
 
 
 @configclass
@@ -342,6 +426,19 @@ class TerminationsCfg:
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
     )
+
+    # robot_on_the_ground = DoneTerm(
+    #     func=mdp.bad_orientation,
+    #     params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi/2},
+    # )  
+    # thigh_contact = DoneTerm(
+    #     func=mdp.illegal_contact,
+    #     params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_thigh"), "threshold": 1.0},
+    # )
+    # calf_contact = DoneTerm(
+    #     func=mdp.illegal_contact,
+    #     params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"), "threshold": 1.0},
+    # )
 
 
 @configclass
