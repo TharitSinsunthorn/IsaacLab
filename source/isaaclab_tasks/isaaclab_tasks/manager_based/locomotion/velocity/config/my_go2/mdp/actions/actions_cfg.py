@@ -7,6 +7,7 @@ from isaaclab.utils import configclass
 from . import cpg_modulator_action, task_space_actions
 from isaaclab.envs.mdp.actions import JointActionCfg
 
+import torch
 import numpy as np
 
 ##
@@ -57,7 +58,7 @@ class QuadrupedDiffIKActionCfg(ActionTermCfg):
 
 
 @configclass
-class CPGQuadrupedActionCfg(QuadrupedDiffIKActionCfg):
+class CPGQuadrupedActionCfg(ActionTermCfg):
     """
     Configuration for a CPG-based action term for quadruped locomotion.
     RL agent modulates CPG parameters (mu, omega, psi) per leg.
@@ -75,31 +76,49 @@ class CPGQuadrupedActionCfg(QuadrupedDiffIKActionCfg):
         body_offset: OffsetCfg | None = None
 
         # CPG specific initial/default values for each leg
-        init_mu: float = 1.0 # Default target amplitude
-        init_omega: float = 2 * np.pi * 1.0 # Default 1 Hz frequency
-        init_psi: float = 0.0
+        init_mux: float = 1.5 # Default target amplitude
+        init_muy: float = 1.5 # Default target amplitude
+        init_omega: float = 0.0 # Default 1 Hz frequency
         
         init_theta: float = 0.0 # Default phase offset
         hip_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+    coupling_weights: dict[str, float] = {
+        "FL_FR": 6.5, "FR_FL": 6.5, # Front legs anti-phase
+        "RL_RR": 6.5, "RR_RL": 6.5, # Rear legs anti-phase
+        "FL_RR": 6.5, "RR_FL": 6.5, # Diagonal coupling (FL-RR) anti-phase
+        "FR_RL": 6.5, "RL_FR": 6.5, # Diagonal coupling (FR-RL) anti-phase
+        "FL_RL": 0.0, "RL_FL": 0.0,  # No direct front-to-rear coupling (trot is more diagonal)
+        "FR_RR": 0.0, "RR_FR": 0.0,
+    }
+    phase_offsets: dict[str, float] = {
+        "FL_FR": torch.pi, "FR_FL": torch.pi,
+        "RL_RR": torch.pi, "RR_RL": torch.pi,
+        "FL_RR": 0.0, "RR_FL": 0.0,
+        "FR_RL": 0.0, "RL_FR": 0.0,
+        "FL_RL": torch.pi, "RL_FL": torch.pi,  # No direct front-to-rear coupling (trot is more diagonal)
+        "FR_RR": torch.pi, "RR_FR": torch.pi,
+    }
 
     # Point to the actual class
     class_type: type[ActionTerm] = cpg_modulator_action.CPGQuadrupedAction # This will be set in env_cfg.py as CPGQuadrupedAction
 
     # Ranges for the RL agent's output for each CPG parameter
     mu_range: tuple[float, float] = (1.0, 2.0)
-    omega_range: tuple[float, float] = (0.0, 2 * np.pi * 1.5) # Hz
-    psi_range: tuple[float, float] = (-np.pi / 4, np.pi / 4) # Hz
+    omega_range: tuple[float, float] = (0.0, 30.0) # Hz
 
     # Global CPG parameters (if not modulated by RL per-leg)
     global_gc: float = 0.1 # Ground clearance
     global_gp: float = 0.05 # Ground penetration
     global_h: float = 0.22 # Robot height
     global_d_step: float = 0.2 # Step size scale
-    cpg_alpha: float = 50.0 # 'a' parameter for CPG amplitude dynamics
+    cpg_alpha: float = 150.0 # 'a' parameter for CPG amplitude dynamics
 
     legs: dict[str, LegCfg] = MISSING
     """Dictionary of leg name (e.g., 'FL', 'FR') to leg-specific configuration."""
 
+    scale: float | tuple[float, ...] = 1.0
+    """Scale factor for the action. Defaults to 1.0."""
     controller: DifferentialIKControllerCfg = MISSING
     """The configuration for the differential IK controller."""
 
