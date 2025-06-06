@@ -15,10 +15,6 @@ from isaaclab.managers.action_manager import ActionTerm
 from isaaclab.sensors import ContactSensor, ContactSensorCfg, FrameTransformer, FrameTransformerCfg
 from isaaclab.sim.utils import find_matching_prims
 
-def map_to_range(x, in_min, in_max, out_min, out_max):
-    """Linearly maps x from [in_min, in_max] to [out_min, out_max]."""
-    return (x - in_min) / (in_max - in_min) * (out_max - out_min) + out_min
-
 # Import the base action class you're inheriting from
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -26,22 +22,51 @@ if TYPE_CHECKING:
     from . import actions_cfg
 
 
-class QuadrupedDiffIKAction(ActionTerm):
-    r"""Quadruped Differential IK Action that handles multiple legs using task-space control."""
+class CPGQuadrupedAction(ActionTerm):
+    """
+    Quadruped Action that uses CPGs to generate foot trajectories.
+    The RL agent modulates CPG parameters (mu, omega, psi) per leg.
+    Inherits from QuadrupedDiffIKAction to utilize its IK setup.
+    """
 
-    cfg: actions_cfg.QuadrupedDiffIKActionCfg
-    """The configuration of the action term."""
+    cfg: actions_cfg.CPGQuadrupedActionCfg
     _asset: Articulation
-    """The articulation asset on which the action term is applied."""
     _scale: torch.Tensor
-    """The scaling factor applied to the input action. Shape is (1, action_dim)."""
     _clip: torch.Tensor
-    """The clip applied to the input action."""
+    
+    # CPG states for each leg, stored per environment
+    _rx: Dict[str, torch.Tensor] = {}
+    _rxdot: Dict[str, torch.Tensor] = {}
+    _ry: Dict[str, torch.Tensor] = {}
+    _rydot: Dict[str, torch.Tensor] = {}
+    _theta: Dict[str, torch.Tensor] = {}
 
-    def __init__(self, cfg: actions_cfg.QuadrupedDiffIKActionCfg, env: ManagerBasedEnv):
-        # initialize the action term
+    # CPG parameters (modulated by RL agent) for each leg
+    _mux: Dict[str, torch.Tensor] = {}
+    _muy: Dict[str, torch.Tensor] = {}
+    _omega: Dict[str, torch.Tensor] = {}
+
+    _hip_offsets: Dict[str, torch.Tensor] = {}
+
+
+    def __init__(self, cfg: actions_cfg.CPGQuadrupedActionCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
 
+        # Store the environment reference for later use
+        self.env = env
+
+        # Store CPG dynamics constant (alpha from paper)
+        self.cpg_alpha = self.cfg.cpg_alpha
+        # Simulation timestep from environment
+        self.sim_dt = self.env.physics_dt
+
+        # Define the ranges for mapping RL actions to CPG parameters
+        self._cpg_param_ranges = {
+            "mu": self.cfg.mu_range,
+            "omega": self.cfg.omega_range,
+        }
+        # Initialize CPG states and parameters for each leg, for each environment
+        # These will be tensors of shape (num_envs,)
         self.legs = {}
         self.controllers = {}
         for leg_name, leg_cfg in self.cfg.legs.items():
@@ -96,21 +121,42 @@ class QuadrupedDiffIKAction(ActionTerm):
             }
             self.controllers[leg_name] = ik_controller
 
-        # create tensors for raw and processed actions
-        action_dim = sum([ctrl.action_dim for ctrl in self.controllers.values()])
+            self._rx[leg_name] = torch.full((self.num_envs,), leg_cfg.init_mux, device=self.device)
+            self._rxdot[leg_name] = torch.zeros(self.num_envs, device=self.device)
+            self._ry[leg_name] = torch.full((self.num_envs,), leg_cfg.init_muy, device=self.device)
+            self._rydot[leg_name] = torch.zeros(self.num_envs, device=self.device)
+            self._theta[leg_name] = torch.full((self.num_envs,), leg_cfg.init_theta, device=self.device)
+
+            # Initialize CPG parameters with their default values from config
+            self._mux[leg_name] = torch.full((self.num_envs,), leg_cfg.init_mux, device=self.device)
+            self._muy[leg_name] = torch.full((self.num_envs,), leg_cfg.init_muy, device=self.device)
+            self._omega[leg_name] = torch.full((self.num_envs,), leg_cfg.init_omega, device=self.device)
+
+            # Reshape to (1, 3) so it can be broadcasted when added to (num_envs, 3)
+            self.mu_min, self.mu_max = self._cpg_param_ranges["mu"]
+            self.omega_min, self.omega_max = self._cpg_param_ranges["omega"]
+
+            self._hip_offsets[leg_name] = torch.tensor(leg_cfg.hip_offset, device=self.device).view(1, 3)
+
+        # Override action_dim inherited from parent:
+        # RL agent outputs 3 parameters (mu, omega, psi) for each of the 4 legs
+        action_dim = len(self.cfg.legs) * 3
+        # Re-initialize _raw_actions with the new dimension
         self._raw_actions = torch.zeros(self.num_envs, action_dim, device=self.device)
         self._processed_actions = torch.zeros_like(self.raw_actions)
         # save the scale as tensors
         self._scale = torch.zeros((self.num_envs, self.action_dim), device=self.device)
         self._scale[:] = torch.tensor(self.cfg.scale, device=self.device)
 
-        self.leg_bounds = {
-            "FL": {"x": (0.05, 0.4), "y": (0.05, 0.25), "z": (-0.5, -0.1)},
-            "FR": {"x": (0.05, 0.4), "y": (-0.25, -0.05), "z": (-0.5, -0.1)},
-            "RL": {"x": (-0.4, -0.05), "y": (0.05, 0.25), "z": (-0.5, -0.1)},
-            "RR": {"x": (-0.4, -0.05), "y": (-0.25, -0.05), "z": (-0.5, -0.1)}
-        }
-        
+        # self.leg_bounds = {
+        #     "FL": {"x": (0.15, 0.25), "y": (0.1, 0.20), "z": (-0.4, -0.1)},
+        #     "FR": {"x": (0.15, 0.25), "y": (-0.20, -0.1), "z": (-0.4, -0.1)},
+        #     "RL": {"x": (-0.25, -0.15), "y": (0.1, 0.20), "z": (-0.4, -0.1)},
+        #     "RR": {"x": (-0.25, -0.15), "y": (-0.20, -0.1), "z": (-0.4, -0.1)}
+        # }
+
+        self.coupling_weights = self.cfg.coupling_weights
+        self.phase_offsets = self.cfg.phase_offsets
 
     """
     Properties.
@@ -127,37 +173,127 @@ class QuadrupedDiffIKAction(ActionTerm):
     @property
     def processed_actions(self) -> torch.Tensor:
         return self._processed_actions
-    
+
     """
     Operations.
     """
 
     def process_actions(self, actions: torch.Tensor):
-        # store the raw actions
+        """
+        Processes the raw actions from the RL agent.
+        Maps raw actions to CPG parameters, updates CPG states,
+        and computes desired foot positions for the IK controllers.
+        """
         self._raw_actions[:] = actions
         self._processed_actions[:] = self.raw_actions * self._scale
 
-        if self.cfg.clip is not None:
-            self._processed_actions = torch.clamp(
-                self._processed_actions, min=self._clip[:, :, 0], max=self._clip[:, :, 1]
-            )
+        # --- Map raw RL actions to CPG parameters ---
+        # Assuming actions are ordered per leg: [delta_mu_FL, delta_omega_FL, delta_psi_FL, delta_mu_FR, ...]
+        action_idx_offset = 0
+        for leg_name in self.cfg.legs.keys():
+            # Extract actions for current leg (3 values: delta_mu, delta_omega, delta_psi)
+            delta_mux = self._processed_actions[:, action_idx_offset]
+            delta_muy = self._processed_actions[:, action_idx_offset + 1]
+            delta_omega = self._processed_actions[:, action_idx_offset + 2]
 
-        leg_index = 0
-        for leg_name, ctrl in self.controllers.items():
-            leg_cfg = self.legs[leg_name]
-            ee_pos_curr, ee_quat_curr = self._compute_frame_pose(leg_cfg)
-            dim = ctrl.action_dim
+            # Map mu
+            # self._mux[leg_name] = torch.clamp(delta_mux, min=self.mu_min, max=self.mu_max)
+            # # self._muy[leg_name] = torch.clamp(delta_muy, min=self.mu_min, max=self.mu_max)
 
-            action_slice = self._processed_actions[:, leg_index:leg_index+dim]
+            # # Map omega
+            # self._omega[leg_name] = torch.clamp(delta_omega, min=self.omega_min, max=self.omega_max)
 
-            # Clamp action based on leg-specific bounds
-            bounds = self.leg_bounds[leg_name]
-            for i, axis in enumerate(["x", "y", "z"]):
-                min_val, max_val = bounds[axis]
-                action_slice[:, i] = torch.clamp(action_slice[:, i], min=min_val, max=max_val)
+            # # Map psi
+            # self._psi[leg_name] = torch.clamp(delta_psi, min=self.psi_min, max=self.psi_max)
 
-            ctrl.set_command(action_slice, ee_pos_curr, ee_quat_curr)
-            leg_index += dim
+             # Map mu
+            self._mux[leg_name] = self.mu_min + (delta_mux + 1.0) / 2.0 * (self.mu_max - self.mu_min)
+            self._muy[leg_name] = self.mu_min + (delta_muy + 1.0) / 2.0 * (self.mu_max - self.mu_min)
+            
+            # Map omega
+            self._omega[leg_name] = self.omega_min + (delta_omega + 1.0) / 2.0 * (self.omega_max - self.omega_min)
+
+            # Map psi
+            # Note: You still need to define self.psi_min and self.psi_max in your CPGQuadrupedActionCfg
+            # self._psi[leg_name] = self.psi_min + (delta_psi + 1.0) / 2.0 * (self.psi_max - self.psi_min)
+            
+            action_idx_offset += 3 # Move to next leg's parameters
+
+        # --- Update CPG states and compute desired foot positions for all legs ---
+        for leg_name in self.cfg.legs.keys():
+            # CPG Amplitude dynamics (Eq 1 from paper)
+            a_val = self.cpg_alpha
+            rx_val = self._rx[leg_name]
+            ry_val = self._ry[leg_name]
+            rxdot_val = self._rxdot[leg_name]
+            rydot_val = self._rydot[leg_name]
+            
+            # Update the CPG amplitude states
+            mux_val = self._mux[leg_name]
+            muy_val = self._muy[leg_name]
+
+            rxddot_val = a_val * ((a_val / 4) * (mux_val - rx_val) - rxdot_val)
+            self._rxdot[leg_name] += rxddot_val * self.sim_dt
+            self._rx[leg_name] += rxdot_val * self.sim_dt
+
+            ryddot_val = a_val * ((a_val / 4) * (muy_val - ry_val) - rydot_val)
+            self._rydot[leg_name] += ryddot_val * self.sim_dt
+            self._ry[leg_name] += rydot_val * self.sim_dt
+
+            # CPG Phase update (Eq 2 from paper)
+            omega_val = 2*torch.pi*self._omega[leg_name]
+            # Calculate coupling contribution
+            coupling_contribution = torch.zeros_like(omega_val, device=self.device) # Initialize with zeros
+            
+            for other_leg_name in self.cfg.legs.keys():
+                if other_leg_name != leg_name:
+                    # Example of accessing (you'll need to define this indexing based on your setup):
+                    key = f"{leg_name}_{other_leg_name}"
+                    w_ij = self.coupling_weights.get(key, torch.zeros_like(omega_val, device=self.device))
+                    phi_ij = self.phase_offsets.get(key, torch.zeros_like(omega_val, device=self.device))
+
+                    theta_j = self._theta[other_leg_name] # Phase of the influencing leg
+                    
+                    # Add to the total coupling contribution for the current leg
+                    coupling_contribution += 0.5 * (self._rx[other_leg_name] + self._ry[other_leg_name]) \
+                        * w_ij * torch.sin(theta_j - self._theta[leg_name] - phi_ij)
+
+            # self._theta[leg_name] += (omega_val + coupling_contribution) * self.sim_dt
+            self._theta[leg_name] += (omega_val) * self.sim_dt
+            self._theta[leg_name] %= (2 * torch.pi) # Ensure phase stays in [0, 2pi]
+
+            cos_theta = torch.cos(self._theta[leg_name])
+            sin_theta = torch.sin(self._theta[leg_name])
+
+            gc = self.cfg.global_gc
+            gp = self.cfg.global_gp
+            h = self.cfg.global_h
+            d_step = self.cfg.global_d_step
+
+            ee_x_des_relative = -d_step * (2*self._rx[leg_name] - 3) * cos_theta
+            ee_y_des_relative = -d_step * (2*self._ry[leg_name] - 3) * cos_theta
+            ee_z_des_relative = -h + torch.where(sin_theta > 0, gc, gp) * sin_theta
+
+            # print(f"{leg_name}: x= {ee_x_des_relative}, y= {ee_y_des_relative}, z={ee_z_des_relative}")
+
+            # Stack the relative positions
+            ee_pos_des_relative = torch.stack((ee_x_des_relative, ee_y_des_relative, ee_z_des_relative), dim=-1)
+
+            # ADD THE HIP OFFSET TO GET THE DESIRED POSITION IN THE ROBOT'S BASE FRAME
+            ee_pos_des = ee_pos_des_relative + self._hip_offsets[leg_name]
+
+            leg_cfg_parent = self.legs[leg_name] # Using a different name to avoid conflict with leg_cfg from CPGQuadrupedActionCfg.legs
+            ee_pos_curr, ee_quat_curr = self._compute_frame_pose(leg_cfg_parent) # Current EE pose in base frame
+
+            # Clamp the desired position to the leg's operational space bounds
+            # bounds = self.leg_bounds[leg_name]
+            # ee_pos_des_clamped = torch.empty_like(ee_pos_des)
+            # ee_pos_des_clamped[:, 0] = torch.clamp(ee_pos_des[:, 0], min=bounds["x"][0], max=bounds["x"][1])
+            # ee_pos_des_clamped[:, 1] = torch.clamp(ee_pos_des[:, 1], min=bounds["y"][0], max=bounds["y"][1])
+            # ee_pos_des_clamped[:, 2] = torch.clamp(ee_pos_des[:, 2], min=bounds["z"][0], max=bounds["z"][1])
+            
+            # Set the command for the differential IK controller
+            self.controllers[leg_name].set_command(ee_pos_des, ee_pos_curr, ee_quat_curr)
 
     def apply_actions(self):
         all_joint_ids = []
@@ -177,9 +313,36 @@ class QuadrupedDiffIKAction(ActionTerm):
         # Set all joint targets at once
         self._asset.set_joint_position_target(all_joint_targets)
 
-
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        """Resets the CPG states and parameters for specified environments."""
+        # Call the parent's reset to clear its internal states (e.g., raw_actions)
         self._raw_actions[env_ids] = 0.0
+
+        # Reset CPG states for specified environments
+        for leg_name in self.cfg.legs.keys():
+            if env_ids is None: # Reset all environments
+                self._rx[leg_name][:] = self.cfg.legs[leg_name].init_mux
+                self._rxdot[leg_name][:] = 0.0
+                self._ry[leg_name][:] = self.cfg.legs[leg_name].init_muy
+                self._rydot[leg_name][:] = 0.0
+                self._theta[leg_name][:] = self.cfg.legs[leg_name].init_theta # Reset to initial phase
+                # self._phi[leg_name][:] = 0.0
+                self._mux[leg_name][:] = self.cfg.legs[leg_name].init_mux
+                # self._muy[leg_name][:] = self.cfg.legs[leg_name].init_muy
+                self._omega[leg_name][:] = self.cfg.legs[leg_name].init_omega
+                # self._psi[leg_name][:] = self.cfg.legs[leg_name].init_psi
+            else: # Reset specific environments
+                self._rx[leg_name][env_ids] = self.cfg.legs[leg_name].init_mux
+                self._rxdot[leg_name][env_ids] = 0.0
+                self._ry[leg_name][env_ids] = self.cfg.legs[leg_name].init_muy
+                self._rydot[leg_name][env_ids] = 0.0
+                self._theta[leg_name][env_ids] = self.cfg.legs[leg_name].init_theta # Reset to initial phase
+                # self._phi[leg_name][env_ids] = 0.0
+                self._mux[leg_name][env_ids] = self.cfg.legs[leg_name].init_mux
+                self._muy[leg_name][env_ids] = self.cfg.legs[leg_name].init_muy
+                self._omega[leg_name][env_ids] = self.cfg.legs[leg_name].init_omega
+                # self._psi[leg_name][env_ids] = self.cfg.legs[leg_name].init_psi
+
 
     """
     Helper functions.
@@ -227,209 +390,3 @@ class QuadrupedDiffIKAction(ActionTerm):
             jacobian[:, 3:, :] = torch.bmm(math_utils.matrix_from_quat(leg_cfg["offset_rot"]), jacobian[:, 3:, :])
 
         return jacobian
-
-
-class CPGQuadrupedAction(QuadrupedDiffIKAction):
-    """
-    Quadruped Action that uses CPGs to generate foot trajectories.
-    The RL agent modulates CPG parameters (mu, omega, psi) per leg.
-    Inherits from QuadrupedDiffIKAction to utilize its IK setup.
-    """
-
-    cfg: actions_cfg.CPGQuadrupedActionCfg # Use the CPG-specific config
-    
-    # CPG states for each leg, stored per environment
-    _r: Dict[str, torch.Tensor] = {}
-    _rdot: Dict[str, torch.Tensor] = {}
-    _theta: Dict[str, torch.Tensor] = {}
-    _phi: Dict[str, torch.Tensor] = {}
-
-    # CPG parameters (modulated by RL agent) for each leg
-    _mu: Dict[str, torch.Tensor] = {}
-    _omega: Dict[str, torch.Tensor] = {}
-    _psi: Dict[str, torch.Tensor] = {}
-
-    _hip_offsets: Dict[str, torch.Tensor] = {}
-
-
-    def __init__(self, cfg: actions_cfg.CPGQuadrupedActionCfg, env: ManagerBasedEnv):
-        # Call the parent's constructor to set up IK controllers, legs, etc.
-        # This will correctly initialize self.legs, self.controllers, etc.
-        super().__init__(cfg, env)
-
-        # Store the environment reference for later use
-        self.env = env
-
-        # Store CPG dynamics constant (alpha from paper)
-        self.cpg_alpha = self.cfg.cpg_alpha
-        # Simulation timestep from environment
-        self.sim_dt = self.env.physics_dt
-
-        # Initialize CPG states and parameters for each leg, for each environment
-        # These will be tensors of shape (num_envs,)
-        for leg_name, leg_cfg in self.cfg.legs.items():
-            self._r[leg_name] = torch.zeros(self.num_envs, device=self.device)
-            self._rdot[leg_name] = torch.zeros(self.num_envs, device=self.device)
-            self._theta[leg_name] = torch.full((self.num_envs,), leg_cfg.init_theta, device=self.device)
-            self._phi[leg_name] = torch.zeros(self.num_envs, device=self.device)  # Phase offset starts at 0
-
-            # Initialize CPG parameters with their default values from config
-            self._mu[leg_name] = torch.full((self.num_envs,), leg_cfg.init_mu, device=self.device)
-            self._omega[leg_name] = torch.full((self.num_envs,), leg_cfg.init_omega, device=self.device)
-            self._psi[leg_name] = torch.full((self.num_envs,), leg_cfg.init_psi, device=self.device)
-
-            # Reshape to (1, 3) so it can be broadcasted when added to (num_envs, 3)
-            self._hip_offsets[leg_name] = torch.tensor(leg_cfg.hip_offset, device=self.device).view(1, 3)
-
-
-        # Define the ranges for mapping RL actions to CPG parameters
-        self._cpg_param_ranges = {
-            "mu": self.cfg.mu_range,
-            "omega": self.cfg.omega_range,
-            "psi": self.cfg.psi_range,
-        }
-        
-        # Override action_dim inherited from parent:
-        # RL agent outputs 3 parameters (mu, omega, psi) for each of the 4 legs
-        action_dim = len(self.cfg.legs) * 3
-        # Re-initialize _raw_actions with the new dimension
-        self._raw_actions = torch.zeros(self.num_envs, action_dim, device=self.device)
-
-    """
-    Properties.
-    """
-
-    # Include with
-    # action_dim -> int
-    # raw_actions -> torch.Tensor
-    # processed_actions -> torch.Tensor
-
-    """
-    Operations.
-    """
-
-    def process_actions(self, actions: torch.Tensor):
-        """
-        Processes the raw actions from the RL agent.
-        Maps raw actions to CPG parameters, updates CPG states,
-        and computes desired foot positions for the IK controllers.
-        """
-        # --- Map raw RL actions to CPG parameters ---
-        # Assuming actions are ordered per leg: [delta_mu_FL, delta_omega_FL, delta_psi_FL, delta_mu_FR, ...]
-        action_idx_offset = 0
-        for leg_name in self.cfg.legs.keys():
-            # Extract actions for current leg (3 values: delta_mu, delta_omega, delta_psi)
-            delta_mu = actions[:, action_idx_offset]
-            delta_omega = actions[:, action_idx_offset + 1]
-            delta_psi = actions[:, action_idx_offset + 2]
-
-            # Manual linear mapping from [-1, 1] to the defined ranges:
-            # output = min_target + (input - min_source) * (max_target - min_target) / (max_source - min_source)
-            # Here, min_source = -1.0, max_source = 1.0
-            # So, (input - min_source) = (delta_param + 1.0)
-            # And (max_source - min_source) = 2.0
-
-            # Map mu
-            mu_min, mu_max = self._cpg_param_ranges["mu"]
-            self._mu[leg_name] = mu_min + (delta_mu + 1.0) * (mu_max - mu_min) / 2.0
-
-            # Map omega
-            omega_min, omega_max = self._cpg_param_ranges["omega"]
-            self._omega[leg_name] = omega_min + (delta_omega + 1.0) * (omega_max - omega_min) / 2.0
-
-            # Map psi
-            psi_min, psi_max = self._cpg_param_ranges["psi"]
-            self._psi[leg_name] = psi_min + (delta_psi + 1.0) * (psi_max - psi_min) / 2.0
-
-            action_idx_offset += 3 # Move to next leg's parameters
-
-        # --- Update CPG states and compute desired foot positions for all legs ---
-        for leg_name in self.cfg.legs.keys():
-            # CPG Amplitude dynamics (Eq 1 from paper)
-            a_val = self.cpg_alpha
-            r_val = self._r[leg_name]
-            rdot_val = self._rdot[leg_name]
-            mu_val = self._mu[leg_name]
-
-            rddot_val = a_val * ((a_val / 4) * (mu_val - r_val) - rdot_val)
-            self._rdot[leg_name] += rddot_val * self.sim_dt
-            self._r[leg_name] += rdot_val * self.sim_dt
-
-            # CPG Phase update (Eq 2 from paper)
-            omega_val = self._omega[leg_name]
-            self._theta[leg_name] += omega_val * self.sim_dt
-            self._theta[leg_name] %= (2 * np.pi) # Ensure phase stays in [0, 2pi]
-            
-            psi_val = self._psi[leg_name]
-            self._phi[leg_name] += psi_val * self.sim_dt
-            self._phi[leg_name] %= (2 * np.pi) # Ensure phase stays in [0, 2pi]
-
-            # Compute 3D foot position in body frame (Eq 3 from paper)
-            # These are RELATIVE positions from the hip joint
-            cos_theta = torch.cos(self._theta[leg_name])
-            sin_theta = torch.sin(self._theta[leg_name])
-
-            cos_phi = torch.cos(self._phi[leg_name])
-            sin_phi = torch.sin(self._phi[leg_name])
-
-            gc = self.cfg.global_gc
-            gp = self.cfg.global_gp
-            h = self.cfg.global_h
-            d_step = self.cfg.global_d_step
-
-            ee_x_des_relative = -d_step * (self._r[leg_name] - 1) * cos_theta * cos_phi
-            ee_y_des_relative = -d_step * (self._r[leg_name] - 1) * cos_theta * sin_phi
-            ee_z_des_relative = -h + torch.where(sin_theta > 0, gc, gp) * sin_theta
-
-            # Stack the relative positions
-            ee_pos_des_relative = torch.stack((ee_x_des_relative, ee_y_des_relative, ee_z_des_relative), dim=-1)
-
-            # ADD THE HIP OFFSET TO GET THE DESIRED POSITION IN THE ROBOT'S BASE FRAME
-            ee_pos_des = ee_pos_des_relative + self._hip_offsets[leg_name]
-
-            leg_cfg_parent = self.legs[leg_name] # Using a different name to avoid conflict with leg_cfg from CPGQuadrupedActionCfg.legs
-            ee_pos_curr, ee_quat_curr = self._compute_frame_pose(leg_cfg_parent) # Current EE pose in base frame
-
-            # Clamp the desired position to the leg's operational space bounds
-            bounds = self.leg_bounds[leg_name]
-            ee_pos_des_clamped = torch.empty_like(ee_pos_des)
-            ee_pos_des_clamped[:, 0] = torch.clamp(ee_pos_des[:, 0], min=bounds["x"][0], max=bounds["x"][1])
-            ee_pos_des_clamped[:, 1] = torch.clamp(ee_pos_des[:, 1], min=bounds["y"][0], max=bounds["y"][1])
-            ee_pos_des_clamped[:, 2] = torch.clamp(ee_pos_des[:, 2], min=bounds["z"][0], max=bounds["z"][1])
-            
-            # Set the command for the differential IK controller
-            self.controllers[leg_name].set_command(ee_pos_des_clamped, ee_pos_curr, ee_quat_curr)
-
-
-        # Note: self._processed_actions is not directly used here to store IK commands.
-        # It could be used to store the mapped CPG parameters if desired for observation.
-        # For now, it's not strictly necessary for the control flow.
-
-    def apply_actions(self):
-        """Applies the processed actions to the robot joints."""
-        # This method is directly inherited and re-used from QuadrupedDiffIKAction.
-        # It computes joint targets based on the commands set in process_actions
-        # and applies them to the robot.
-        super().apply_actions()
-
-    def reset(self, env_ids: Sequence[int] | None = None) -> None:
-        """Resets the CPG states and parameters for specified environments."""
-        # Call the parent's reset to clear its internal states (e.g., raw_actions)
-        super().reset(env_ids)
-
-        # Reset CPG states for specified environments
-        for leg_name in self.cfg.legs.keys():
-            if env_ids is None: # Reset all environments
-                self._r[leg_name][:] = 0.0
-                self._rdot[leg_name][:] = 0.0
-                self._theta[leg_name][:] = self.cfg.legs[leg_name].init_theta # Reset to initial phase
-                self._mu[leg_name][:] = self.cfg.legs[leg_name].init_mu
-                self._omega[leg_name][:] = self.cfg.legs[leg_name].init_omega
-                self._psi[leg_name][:] = self.cfg.legs[leg_name].init_psi
-            else: # Reset specific environments
-                self._r[leg_name][env_ids] = 0.0
-                self._rdot[leg_name][env_ids] = 0.0
-                self._theta[leg_name][env_ids] = self.cfg.legs[leg_name].init_theta # Reset to initial phase
-                self._mu[leg_name][env_ids] = self.cfg.legs[leg_name].init_mu
-                self._omega[leg_name][env_ids] = self.cfg.legs[leg_name].init_omega
-                self._psi[leg_name][env_ids] = self.cfg.legs[leg_name].init_psi
