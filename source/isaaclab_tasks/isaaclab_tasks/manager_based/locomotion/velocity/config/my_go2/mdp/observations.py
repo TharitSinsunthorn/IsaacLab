@@ -12,9 +12,11 @@ import isaaclab.utils.math as math_utils
 from isaaclab.assets import ArticulationData
 from isaaclab.managers import ManagerTermBase, SceneEntityCfg
 from isaaclab.sensors import FrameTransformerData, ContactSensor
+from . import CPGQuadrupedAction
 
 if TYPE_CHECKING:
-    from isaaclab.envs import ManagerBasedRLEnv
+    from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedEnv
+    from . import CPGQuadrupedAction
 
 
 """
@@ -61,3 +63,55 @@ def ee_quat(env: ManagerBasedRLEnv, make_quat_unique: bool = True) -> torch.Tens
     ee_quat = ee_tf_data.target_quat_w[..., 0, :]
     # make first element of quaternion positive
     return math_utils.quat_unique(ee_quat) if make_quat_unique else ee_quat
+
+
+"""
+CPG state
+"""
+
+def get_cpg_internal_states(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """
+    Retrieves the internal CPG states:
+    (r_x, r_dot_x, r_y, r_dot_y, theta, theta_dot) for each leg.
+    """
+    cpg_action_term: CPGQuadrupedAction | None = None
+    for _, action_term in env.action_manager._terms.items():
+        if isinstance(action_term, CPGQuadrupedAction):
+            cpg_action_term = action_term
+            break
+
+    if cpg_action_term is None:
+        raise RuntimeError("CPGQuadrupedAction not found.")
+
+    all_legs_cpg_states = []
+
+    for leg_name in cpg_action_term.cfg.legs.keys():
+        current_rx = cpg_action_term._rx[leg_name]
+        current_rxdot = cpg_action_term._rxdot[leg_name]
+        current_ry = cpg_action_term._ry[leg_name]
+        current_rydot = cpg_action_term._rydot[leg_name]
+        current_theta = cpg_action_term._theta[leg_name]
+
+        # Compute theta_dot = omega + coupling
+        # If you already apply coupling during training, this is approximate:
+        current_theta_dot = 2*torch.pi*cpg_action_term._omega[leg_name]
+
+        # current_phi = cpg_action_term._phi[leg_name]
+        # current_phi_dot = 2*torch.pi*cpg_action_term._psi[leg_name]
+
+        leg_vector = torch.stack([
+            current_rx,
+            current_rxdot,
+            current_ry,
+            current_rydot,
+            current_theta,
+            current_theta_dot,
+            # current_phi,
+            # current_phi_dot
+
+        ], dim=1)
+
+        all_legs_cpg_states.append(leg_vector)
+
+    return torch.cat(all_legs_cpg_states, dim=1)
+
