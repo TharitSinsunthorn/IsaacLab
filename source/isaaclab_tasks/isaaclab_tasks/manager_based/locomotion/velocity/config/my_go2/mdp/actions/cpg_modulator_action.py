@@ -157,6 +157,7 @@ class CPGQuadrupedAction(ActionTerm):
 
         self.coupling_weights = self.cfg.coupling_weights
         self.phase_offsets = self.cfg.phase_offsets
+        self._coupling_enable = self.cfg.coupling_enable
 
     """
     Properties.
@@ -258,8 +259,11 @@ class CPGQuadrupedAction(ActionTerm):
                     coupling_contribution += 0.5 * (self._rx[other_leg_name] + self._ry[other_leg_name]) \
                         * w_ij * torch.sin(theta_j - self._theta[leg_name] - phi_ij)
 
-            # self._theta[leg_name] += (omega_val + coupling_contribution) * self.sim_dt
-            self._theta[leg_name] += (omega_val) * self.sim_dt
+            if self._coupling_enable:
+                self._theta[leg_name] += (omega_val + coupling_contribution) * self.sim_dt
+            else:
+                self._theta[leg_name] += (omega_val) * self.sim_dt
+            
             self._theta[leg_name] %= (2 * torch.pi) # Ensure phase stays in [0, 2pi]
 
             cos_theta = torch.cos(self._theta[leg_name])
