@@ -99,6 +99,7 @@ class CPGQuadrupedActionCfg(ActionTermCfg):
         "FL_RL": torch.pi, "RL_FL": torch.pi,  # No direct front-to-rear coupling (trot is more diagonal)
         "FR_RR": torch.pi, "RR_FR": torch.pi,
     }
+    coupling_enable: bool = False
 
     # Point to the actual class
     class_type: type[ActionTerm] = cpg_modulator_action.CPGQuadrupedAction # This will be set in env_cfg.py as CPGQuadrupedAction
