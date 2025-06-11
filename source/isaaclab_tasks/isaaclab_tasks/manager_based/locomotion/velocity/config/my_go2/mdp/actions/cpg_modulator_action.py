@@ -10,7 +10,6 @@ import isaaclab.utils.math as math_utils
 import isaaclab.utils.string as string_utils
 from isaaclab.assets.articulation import Articulation
 from isaaclab.controllers.differential_ik import DifferentialIKController
-from isaaclab.controllers.operational_space import OperationalSpaceController
 from isaaclab.managers.action_manager import ActionTerm
 from isaaclab.sensors import ContactSensor, ContactSensorCfg, FrameTransformer, FrameTransformerCfg
 from isaaclab.sim.utils import find_matching_prims
@@ -25,7 +24,7 @@ if TYPE_CHECKING:
 class CPGQuadrupedAction(ActionTerm):
     """
     Quadruped Action that uses CPGs to generate foot trajectories.
-    The RL agent modulates CPG parameters (mu, omega, psi) per leg.
+    The RL agent modulates CPG parameters (mux, muy, omega) per leg.
     Inherits from QuadrupedDiffIKAction to utilize its IK setup.
     """
 
@@ -139,7 +138,7 @@ class CPGQuadrupedAction(ActionTerm):
             self._hip_offsets[leg_name] = torch.tensor(leg_cfg.hip_offset, device=self.device).view(1, 3)
 
         # Override action_dim inherited from parent:
-        # RL agent outputs 3 parameters (mu, omega, psi) for each of the 4 legs
+        # RL agent outputs 3 parameters (mux, muy, omega) for each of the 4 legs
         action_dim = len(self.cfg.legs) * 3
         # Re-initialize _raw_actions with the new dimension
         self._raw_actions = torch.zeros(self.num_envs, action_dim, device=self.device)
@@ -189,35 +188,29 @@ class CPGQuadrupedAction(ActionTerm):
         self._processed_actions[:] = self.raw_actions * self._scale
 
         # --- Map raw RL actions to CPG parameters ---
-        # Assuming actions are ordered per leg: [delta_mu_FL, delta_omega_FL, delta_psi_FL, delta_mu_FR, ...]
+        # Assuming actions are ordered per leg: [delta_mux_FL, delta_muy_FL, delta_omega_FL, delta_mu_FR, ...]
         action_idx_offset = 0
         for leg_name in self.cfg.legs.keys():
-            # Extract actions for current leg (3 values: delta_mu, delta_omega, delta_psi)
+            # Extract actions for current leg (3 values: delta_mux, delta_muy delta_omega)
             delta_mux = self._processed_actions[:, action_idx_offset]
             delta_muy = self._processed_actions[:, action_idx_offset + 1]
             delta_omega = self._processed_actions[:, action_idx_offset + 2]
 
-            # Map mu
+            # # Map mu
             # self._mux[leg_name] = torch.clamp(delta_mux, min=self.mu_min, max=self.mu_max)
-            # # self._muy[leg_name] = torch.clamp(delta_muy, min=self.mu_min, max=self.mu_max)
+            # self._muy[leg_name] = torch.clamp(delta_muy, min=self.mu_min, max=self.mu_max)
 
-            # # Map omega
+            # # # Map omega
             # self._omega[leg_name] = torch.clamp(delta_omega, min=self.omega_min, max=self.omega_max)
 
-            # # Map psi
-            # self._psi[leg_name] = torch.clamp(delta_psi, min=self.psi_min, max=self.psi_max)
 
-             # Map mu
+            # Map mu
             self._mux[leg_name] = self.mu_min + (delta_mux + 1.0) / 2.0 * (self.mu_max - self.mu_min)
             self._muy[leg_name] = self.mu_min + (delta_muy + 1.0) / 2.0 * (self.mu_max - self.mu_min)
             
             # Map omega
             self._omega[leg_name] = self.omega_min + (delta_omega + 1.0) / 2.0 * (self.omega_max - self.omega_min)
 
-            # Map psi
-            # Note: You still need to define self.psi_min and self.psi_max in your CPGQuadrupedActionCfg
-            # self._psi[leg_name] = self.psi_min + (delta_psi + 1.0) / 2.0 * (self.psi_max - self.psi_min)
-            
             action_idx_offset += 3 # Move to next leg's parameters
 
         # --- Update CPG states and compute desired foot positions for all legs ---
@@ -243,23 +236,23 @@ class CPGQuadrupedAction(ActionTerm):
 
             # CPG Phase update (Eq 2 from paper)
             omega_val = 2*torch.pi*self._omega[leg_name]
-            # Calculate coupling contribution
-            coupling_contribution = torch.zeros_like(omega_val, device=self.device) # Initialize with zeros
             
-            for other_leg_name in self.cfg.legs.keys():
-                if other_leg_name != leg_name:
-                    # Example of accessing (you'll need to define this indexing based on your setup):
-                    key = f"{leg_name}_{other_leg_name}"
-                    w_ij = self.coupling_weights.get(key, torch.zeros_like(omega_val, device=self.device))
-                    phi_ij = self.phase_offsets.get(key, torch.zeros_like(omega_val, device=self.device))
-
-                    theta_j = self._theta[other_leg_name] # Phase of the influencing leg
-                    
-                    # Add to the total coupling contribution for the current leg
-                    coupling_contribution += 0.5 * (self._rx[other_leg_name] + self._ry[other_leg_name]) \
-                        * w_ij * torch.sin(theta_j - self._theta[leg_name] - phi_ij)
-
             if self._coupling_enable:
+                # Calculate coupling contribution
+                coupling_contribution = torch.zeros_like(omega_val, device=self.device) # Initialize with zeros
+                for other_leg_name in self.cfg.legs.keys():
+                    if other_leg_name != leg_name:
+                        # Example of accessing (you'll need to define this indexing based on your setup):
+                        key = f"{leg_name}_{other_leg_name}"
+                        w_ij = self.coupling_weights.get(key, torch.zeros_like(omega_val, device=self.device))
+                        phi_ij = self.phase_offsets.get(key, torch.zeros_like(omega_val, device=self.device))
+
+                        theta_j = self._theta[other_leg_name] # Phase of the influencing leg
+                        
+                        # Add to the total coupling contribution for the current leg
+                        coupling_contribution += 0.5 * (self._rx[other_leg_name] + self._ry[other_leg_name]) \
+                            * w_ij * torch.sin(theta_j - self._theta[leg_name] - phi_ij)
+
                 self._theta[leg_name] += (omega_val + coupling_contribution) * self.sim_dt
             else:
                 self._theta[leg_name] += (omega_val) * self.sim_dt
@@ -277,8 +270,6 @@ class CPGQuadrupedAction(ActionTerm):
             ee_x_des_relative = -d_step * (2*self._rx[leg_name] - 3) * cos_theta
             ee_y_des_relative = -d_step * (2*self._ry[leg_name] - 3) * cos_theta
             ee_z_des_relative = -h + torch.where(sin_theta > 0, gc, gp) * sin_theta
-
-            # print(f"{leg_name}: x= {ee_x_des_relative}, y= {ee_y_des_relative}, z={ee_z_des_relative}")
 
             # Stack the relative positions
             ee_pos_des_relative = torch.stack((ee_x_des_relative, ee_y_des_relative, ee_z_des_relative), dim=-1)
@@ -330,22 +321,18 @@ class CPGQuadrupedAction(ActionTerm):
                 self._ry[leg_name][:] = self.cfg.legs[leg_name].init_muy
                 self._rydot[leg_name][:] = 0.0
                 self._theta[leg_name][:] = self.cfg.legs[leg_name].init_theta # Reset to initial phase
-                # self._phi[leg_name][:] = 0.0
                 self._mux[leg_name][:] = self.cfg.legs[leg_name].init_mux
-                # self._muy[leg_name][:] = self.cfg.legs[leg_name].init_muy
+                self._muy[leg_name][:] = self.cfg.legs[leg_name].init_muy
                 self._omega[leg_name][:] = self.cfg.legs[leg_name].init_omega
-                # self._psi[leg_name][:] = self.cfg.legs[leg_name].init_psi
             else: # Reset specific environments
                 self._rx[leg_name][env_ids] = self.cfg.legs[leg_name].init_mux
                 self._rxdot[leg_name][env_ids] = 0.0
                 self._ry[leg_name][env_ids] = self.cfg.legs[leg_name].init_muy
                 self._rydot[leg_name][env_ids] = 0.0
                 self._theta[leg_name][env_ids] = self.cfg.legs[leg_name].init_theta # Reset to initial phase
-                # self._phi[leg_name][env_ids] = 0.0
                 self._mux[leg_name][env_ids] = self.cfg.legs[leg_name].init_mux
                 self._muy[leg_name][env_ids] = self.cfg.legs[leg_name].init_muy
                 self._omega[leg_name][env_ids] = self.cfg.legs[leg_name].init_omega
-                # self._psi[leg_name][env_ids] = self.cfg.legs[leg_name].init_psi
 
 
     """
@@ -387,7 +374,7 @@ class CPGQuadrupedAction(ActionTerm):
         jacobian[:, :3, :] = torch.bmm(base_rot_matrix, jacobian[:, :3, :])
         jacobian[:, 3:, :] = torch.bmm(base_rot_matrix, jacobian[:, 3:, :])
 
-        if leg_cfg["offset_pos"] and leg_cfg["offset_rot"] is not None:
+        if leg_cfg["offset_pos"] is not None and leg_cfg["offset_rot"] is not None:
             jacobian[:, 0:3, :] += torch.bmm(
                 -math_utils.skew_symmetric_matrix(leg_cfg["offset_pos"]), jacobian[:, 3:, :]
             )
