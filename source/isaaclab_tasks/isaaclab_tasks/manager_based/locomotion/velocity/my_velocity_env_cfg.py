@@ -236,16 +236,6 @@ class EventCfg:
         },
     )
 
-    random_joint_gains = EventTerm(
-        func=mdp.randomize_actuator_gains,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-            "stiffness_distribution_params": (55, 100),
-            "damping_distribution_params": (0.7, 2.5),
-        },
-    )
-
     # reset
     base_external_force_torque = EventTerm(
         func=mdp.apply_external_force_torque,
@@ -427,10 +417,10 @@ class TerminationsCfg:
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
     )
 
-    # robot_on_the_ground = DoneTerm(
-    #     func=mdp.bad_orientation,
-    #     params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi/2},
-    # )  
+    robot_on_the_ground = DoneTerm(
+        func=mdp.bad_orientation,
+        params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi/2},
+    )  
     # thigh_contact = DoneTerm(
     #     func=mdp.illegal_contact,
     #     params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_thigh"), "threshold": 1.0},
