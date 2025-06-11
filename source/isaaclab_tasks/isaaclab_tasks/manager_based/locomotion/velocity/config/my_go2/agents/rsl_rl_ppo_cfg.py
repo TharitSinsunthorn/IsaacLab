@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg, RslRlPpoActorCriticRecurrentCfg
 
 from isaaclab.utils import configclass
 
@@ -14,13 +14,24 @@ class UnitreeGo2RoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 1500
     save_interval = 50
     experiment_name = "unitree_go2_rough"
-    empirical_normalization = False
-    policy = RslRlPpoActorCriticCfg(
+    empirical_normalization = True
+    # policy = RslRlPpoActorCriticCfg(
+    #     init_noise_std=1.0,
+    #     actor_hidden_dims=[512, 256, 128],
+    #     critic_hidden_dims=[512, 256, 128],
+    #     activation="elu",
+    # )
+    policy = RslRlPpoActorCriticRecurrentCfg(
         init_noise_std=1.0,
-        actor_hidden_dims=[512, 256, 128],
-        critic_hidden_dims=[512, 256, 128],
+        actor_hidden_dims=[256, 128],
+        critic_hidden_dims=[256, 128],
         activation="elu",
+        rnn_type="lstm",  # or "gru"
+        rnn_hidden_dim=512,  # hidden dimension of the RNN
+        rnn_num_layers=1,  # number of RNN layers
     )
+
+    clip_actions = 1.0
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
@@ -28,7 +39,7 @@ class UnitreeGo2RoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         entropy_coef=0.01,
         num_learning_epochs=5,
         num_mini_batches=4,
-        learning_rate=1.0e-4, # default 1.0e-3
+        learning_rate=1.0e-3, # default 1.0e-3
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,
@@ -44,8 +55,8 @@ class UnitreeGo2FlatPPORunnerCfg(UnitreeGo2RoughPPORunnerCfg):
 
         self.max_iterations = 1000 # dafault: 300
         self.experiment_name = "unitree_go2_flat"
-        self.policy.actor_hidden_dims = [128, 128, 128]
-        self.policy.critic_hidden_dims = [128, 128, 128]
+        # self.policy.actor_hidden_dims = [128, 128, 128]
+        # self.policy.critic_hidden_dims = [128, 128, 128]
         
 
 @configclass
