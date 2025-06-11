@@ -5,8 +5,11 @@
 
 from isaaclab.utils import configclass
 
-from .rough_env_cfg import MyUnitreeGo2RoughEnvCfg, LowGravityUnitreeGo2RoughEnvCfg
+from .rough_env_cfg import MyUnitreeGo2RoughEnvCfg
+from .lowg_env_cfg import LowGravityUnitreeGo2RoughEnvCfg
+import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
+import math
 
 @configclass
 class MyUnitreeGo2FlatEnvCfg(MyUnitreeGo2RoughEnvCfg):
@@ -14,24 +17,35 @@ class MyUnitreeGo2FlatEnvCfg(MyUnitreeGo2RoughEnvCfg):
         # post init of parent
         super().__post_init__()
 
+        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfg.Ranges(
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-0.7, 0.7), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi))
         # override rewards
         # rewards # default according to go2 setting
-        self.rewards.track_lin_vel_xy_exp.weight = 1.5 # default 1.5
+        self.rewards.track_lin_vel_xy_exp.weight = 3.0 # default 1.5
         self.rewards.track_ang_vel_z_exp.weight = 0.75 # default 0.75
-        
-        self.rewards.lin_vel_z_l2.weight = -2.00 # default -2.0
-        self.rewards.dof_torques_l2.weight = -2.0e-5 # default -1.0e-5
-        self.rewards.dof_acc_l2.weight = -2.5e-7 # default -2.5e-7
-        self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.feet_air_time.weight = 0.2 # default 0.125
-        # self.rewards.undesired_contacts = None
-        # self.rewards.undesired_contacts.params["sensor_cfg"].body_names = ".*_thigh"
-        # self.rewards.undesired_contacts.weight = -1.0 # default -1.0
-        self.rewards.contact_forces = None
-        # self.rewards.contact_forces.params["sensor_cfg"].body_names = ".*_foot"
-        # self.rewards.contact_forces.weight = -0.25 # default -0.25
-        self.rewards.flat_orientation_l2.weight = -2.5
-        self.rewards.dof_pos_limits.weight = -1.0 # default 0.0
+        self.rewards.feet_air_time.weight = 0.25 # default 0.125
+        self.rewards.foot_clearance.weight = 0.1 # default 0.1
+        self.rewards.feet_stance = None
+        self.rewards.crawl_reward = None
+
+        # -- penalties
+        # body related
+        self.rewards.lin_vel_z_l2.weight = -1.0 # default -2.0
+        self.rewards.ang_vel_xy_l2.weight = -0.05 # default -0.05
+        self.rewards.flat_orientation_l2.weight = -2.5 # default -2.5
+        self.rewards.body_lin_acc_l2 = None # default -5.0e-4
+        # joint related
+        self.rewards.dof_torques_l2.weight = -1.0e-5 # default -1.0e-5
+        self.rewards.dof_acc_l2.weight = -2.5e-7 # default -2.5
+        self.rewards.dof_vel_l2 = None # default -0.01
+        self.rewards.dof_pos_limits.weight= -1.0 # default 0.0
+        self.rewards.action_rate_l2.weight = -0.01 # default -0.01
+        # foot related
+        self.rewards.undesired_contacts.weight = -1.0 # default -1.0
+        self.rewards.contact_forces = None # default -0.25s
+        self.rewards.feet_contact_limit = None
+        self.rewards.foot_slip = None ##EDITEDz
+        self.rewards.feet_sync = None # default 10.0
 
         # change terrain to flat
         self.scene.terrain.terrain_type = "plane"
