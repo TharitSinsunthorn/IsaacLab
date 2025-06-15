@@ -271,6 +271,15 @@ def joint_velocity_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) ->
     return torch.linalg.norm((asset.data.joint_vel), dim=1)
 
 
+def energy_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Computes an energy penalty based on the absolute joint power (torque * velocity)."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    joint_vel = asset.data.joint_vel # Shape: (num_envs, num_joints)
+    joint_torques = asset.data.applied_torque # Shape: (num_envs, num_joints)
+    joint_power = torch.sum(torch.abs(joint_torques * joint_vel), dim=1) # Shape: (num_envs,)
+    return joint_power
+
+
 def crawl_stance_reward(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, mode_time: float) -> torch.Tensor:
     """Encourage longer stance times and penalize multiple feet in the air."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
