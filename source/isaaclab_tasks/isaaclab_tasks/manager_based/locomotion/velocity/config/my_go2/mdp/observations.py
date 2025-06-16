@@ -96,9 +96,6 @@ def get_cpg_internal_states(env: ManagerBasedRLEnv) -> torch.Tensor:
         # If you already apply coupling during training, this is approximate:
         current_theta_dot = 2*torch.pi*cpg_action_term._omega[leg_name]
 
-        # current_phi = cpg_action_term._phi[leg_name]
-        # current_phi_dot = 2*torch.pi*cpg_action_term._psi[leg_name]
-
         leg_vector = torch.stack([
             current_rx,
             current_rxdot,
@@ -106,8 +103,6 @@ def get_cpg_internal_states(env: ManagerBasedRLEnv) -> torch.Tensor:
             current_rydot,
             current_theta,
             current_theta_dot,
-            # current_phi,
-            # current_phi_dot
 
         ], dim=1)
 
