@@ -183,24 +183,6 @@ def air_time_variance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg
     )
 
 
-def contact_force_variance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
-    """Penalize variance in net contact forces across the feet in each environment."""
-    # extract the used quantities (to enable type-hinting)
-    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    
-    # get net contact forces: [num_envs, history, num_feet, 3]
-    net_forces = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]
-    
-    # compute force norms: [num_envs, history, num_feet]
-    force_norms = net_forces.norm(dim=-1)
-    
-    # take the most recent timestep: [num_envs, num_feet]
-    current_forces = force_norms[:, -1, :]
-    
-    # compute variance across feet: [num_envs]
-    return torch.var(current_forces, dim=1)
-
-
 # ! look into simplifying the kernel here; it's a little oddly complex
 def base_motion_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Penalize base vertical and roll/pitch velocity"""
@@ -221,21 +203,9 @@ def base_orientation_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) 
     return torch.linalg.norm((asset.data.projected_gravity_b[:, :2]), dim=1)
 
 
-def foot_slip_penalty(
-    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, sensor_cfg: SceneEntityCfg, threshold: float
-) -> torch.Tensor:
-    """Penalize foot planar (xy) slip when in contact with the ground"""
-    asset: RigidObject = env.scene[asset_cfg.name]
-    # extract the used quantities (to enable type-hinting)
-    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-
-    # check if contact force is above threshold
-    net_contact_forces = contact_sensor.data.net_forces_w_history
-    is_contact = torch.max(torch.norm(net_contact_forces[:, :, sensor_cfg.body_ids], dim=-1), dim=1)[0] > threshold
-    foot_planar_velocity = torch.linalg.norm(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=2)
-
-    reward = is_contact * foot_planar_velocity
-    return torch.sum(reward, dim=1)
+"""
+Joint Related
+"""
 
 
 def joint_acceleration_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
@@ -280,11 +250,43 @@ def energy_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.T
     return joint_power
 
 
-def crawl_stance_reward(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, mode_time: float) -> torch.Tensor:
-    """Encourage longer stance times and penalize multiple feet in the air."""
+"""
+Contact Related
+"""
+
+
+def contact_force_variance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize variance in net contact forces across the feet in each environment."""
+    # extract the used quantities (to enable type-hinting)
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    current_contact_time = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids]
-    return torch.sum(torch.clip(current_contact_time, max=mode_time), dim=1)
+    
+    # get net contact forces: [num_envs, history, num_feet, 3]
+    net_forces = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]
+    
+    # compute force norms: [num_envs, history, num_feet]
+    force_norms = net_forces.norm(dim=-1)
+    
+    # take the most recent timestep: [num_envs, num_feet]
+    current_forces = force_norms[:, -1, :]
+    
+    # compute variance across feet: [num_envs]
+    return torch.var(current_forces, dim=1)
+
+
+def contact_force_z_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize excessive Z-axis contact forces on specified bodies."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    net_contact_forces = contact_sensor.data.net_forces_w_history  # shape: (num_envs, T, num_bodies, 3)
+
+    # select z-component of forces for target bodies
+    z_forces = net_contact_forces[:, :, sensor_cfg.body_ids, 2]  # shape: (num_envs, T, num_bodies)
+
+    # max absolute z-force over time for each env and body
+    max_z_force = torch.max(torch.abs(z_forces), dim=1)[0]  # shape: (num_envs, num_bodies)
+
+    # compute how much it exceeds the threshold
+    violation = max_z_force - threshold  # shape: (num_envs, num_bodies)
+    return torch.sum(violation.clip(min=0.0), dim=1)  # shape: (num_envs,)
 
 
 def crawl_balance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
@@ -297,6 +299,14 @@ def crawl_balance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) ->
     penalty = torch.clamp(penalty, min=0)  # Only apply when > 1 foot is in air
 
     return penalty  # Negative reward (penalty)
+
+
+def crawl_stance_reward(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, mode_time: float) -> torch.Tensor:
+    """Encourage longer stance times."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    current_contact_time = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids]
+    return torch.sum(torch.clip(current_contact_time, max=mode_time), dim=1)
+
 
 def crawl_reward(
     env: ManagerBasedRLEnv,
@@ -323,6 +333,23 @@ def crawl_reward(
     return stance_reward
 
 
+def foot_slip_penalty(
+    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, sensor_cfg: SceneEntityCfg, threshold: float
+) -> torch.Tensor:
+    """Penalize foot planar (xy) slip when in contact with the ground"""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    # extract the used quantities (to enable type-hinting)
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+    # check if contact force is above threshold
+    net_contact_forces = contact_sensor.data.net_forces_w_history
+    is_contact = torch.max(torch.norm(net_contact_forces[:, :, sensor_cfg.body_ids], dim=-1), dim=1)[0] > threshold
+    foot_planar_velocity = torch.linalg.norm(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=2)
+
+    reward = is_contact * foot_planar_velocity
+    return torch.sum(reward, dim=1)
+
+
 def swing_impact_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """Penalize high contact forces when a foot lands on the ground (i.e., swing-to-stance transition)."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
@@ -331,8 +358,8 @@ def swing_impact_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: S
     first_contact = contact_sensor.compute_first_contact(env.step_dt)[:, sensor_cfg.body_ids]
 
     # Get current contact forces
-    contact_forces = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
-    contact_force_magnitudes = torch.norm(contact_forces, dim=-1)
+    contact_forces_z = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, 2]
+    contact_force_magnitudes = contact_forces_z.abs()
 
     # Penalize only on landing (first contact) and above threshold
     violation = (contact_force_magnitudes - threshold).clip(min=0.0)
