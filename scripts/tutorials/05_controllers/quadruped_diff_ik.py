@@ -136,7 +136,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
     robot = scene["robot"]
 
     # Create a shared IK controller
-    diff_ik_cfg = DifferentialIKControllerCfg(command_type="position", use_relative_mode=False, ik_method="dls")
+    diff_ik_cfg = DifferentialIKControllerCfg(command_type="position", use_relative_mode=False, ik_method="dls", ik_params={"lambda_val": 0.01},)
     diff_ik_controller = DifferentialIKController(diff_ik_cfg, num_envs=scene.num_envs, device=sim.device)
 
     # Markers
@@ -156,22 +156,22 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
         ("FL", ["FL_hip_joint", "FL_thigh_joint", "FL_calf_joint"], "FL_foot", [
             torch.tensor([0.2,  0.2, -0.1], device=sim.device),
             torch.tensor([0.2,  0.2, -0.2], device=sim.device),
-            torch.tensor([0.15,  0.15, -0.1], device=sim.device),
+            torch.tensor([0.15,  0.15, -0.3], device=sim.device),
         ]),
         ("FR", ["FR_hip_joint", "FR_thigh_joint", "FR_calf_joint"], "FR_foot", [
             torch.tensor([0.2, -0.2, -0.1], device=sim.device),
             torch.tensor([0.2, -0.2, -0.2], device=sim.device),
-            torch.tensor([0.15, -0.15, -0.1], device=sim.device),
+            torch.tensor([0.15, -0.15, -0.3], device=sim.device),
         ]),
         ("RL", ["RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"], "RL_foot", [
             torch.tensor([-0.2,  0.2, -0.1], device=sim.device),
             torch.tensor([-0.2,  0.2, -0.2], device=sim.device),
-            torch.tensor([-0.15,  0.15, -0.1], device=sim.device),
+            torch.tensor([-0.15,  0.15, -0.3], device=sim.device),
         ]),
         ("RR", ["RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"], "RR_foot", [
             torch.tensor([-0.2, -0.2, -0.1], device=sim.device),
             torch.tensor([-0.2, -0.2, -0.2], device=sim.device),
-            torch.tensor([-0.15, -0.15, -0.1], device=sim.device),
+            torch.tensor([-0.15, -0.15, -0.3], device=sim.device),
         ]),
     ]
 
@@ -181,14 +181,14 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
 
     # Simulation loop
     while simulation_app.is_running():
-        if count % 150 == 0:
+        if count % 50 == 0:
             # reset time
             count = 0
-            # reset joint state
-            joint_pos = robot.data.default_joint_pos.clone()
-            joint_vel = robot.data.default_joint_vel.clone()
-            robot.write_joint_state_to_sim(joint_pos, joint_vel)
-            robot.reset()
+            # # reset joint state
+            # joint_pos = robot.data.default_joint_pos.clone()
+            # joint_vel = robot.data.default_joint_vel.clone()
+            # robot.write_joint_state_to_sim(joint_pos, joint_vel)
+            # robot.reset()
             # reset controller
             diff_ik_controller.reset()
             # change goal
