@@ -41,6 +41,25 @@ def contact_force(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.T
     return forces_for_selected_bodies.flatten(start_dim=1)
 
 
+def local_contact_force_observation(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Contact force vector for the specified bodies (in local frame), flattened for observations."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    forces_for_selected_bodies_w = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
+    sensor_orientation_w = contact_sensor.data.quat_w[:, sensor_cfg.body_ids, :]
+    # Flatten forces and quaternions for the utility function call 
+    # Both become (num_envs * num_selected_bodies, X).
+    forces_flat = forces_for_selected_bodies_w.reshape(-1, 3)
+    quats_flat = sensor_orientation_w.reshape(-1, 4)
+    # Transform the world-frame forces to the LOCAL FRAME OF THE BODY.
+    local_forces_flat = math_utils.quat_apply_inverse(quats_flat, forces_flat)
+    # Reshape the transformed forces back to their original batch structure.
+    # Shape: (num_envs, num_selected_bodies, 3)
+    local_forces_reshaped = local_forces_flat.view(forces_for_selected_bodies_w.shape)
+    # Flatten the (num_selected_bodies, 3) part into a single vector for observations.
+    # If `local_forces_reshaped` is (N, B, 3), this makes it (N, B*3).
+    return local_forces_reshaped.flatten(start_dim=1)
+
+
 """
 ee state.
 """
