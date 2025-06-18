@@ -14,6 +14,7 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
+import isaaclab.utils.math as math_utils
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import ManagerTermBase, SceneEntityCfg
 from isaaclab.sensors import ContactSensor
@@ -287,6 +288,25 @@ def contact_force_z_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg
     # compute how much it exceeds the threshold
     violation = max_z_force - threshold  # shape: (num_envs, num_bodies)
     return torch.sum(violation.clip(min=0.0), dim=1)  # shape: (num_envs,)
+
+
+def local_contact_force_z_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize excessive Z-axis contact forces in the LOCAL FRAME on specified bodies."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    net_contact_forces_w = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
+    body_orientations_w = contact_sensor.data.quat_w[:, sensor_cfg.body_ids, :]
+    # Flatten forces and quaternions for the utility function call.
+    #    Both become (num_envs * num_selected_bodies, X).
+    forces_flat = net_contact_forces_w.reshape(-1, 3)
+    quats_flat = body_orientations_w.reshape(-1, 4)
+    net_contact_forces_local = math_utils.quat_apply_inverse(quats_flat, forces_flat)
+    # Reshape the transformed forces back to their original batch structure.
+    # Shape: (num_envs, num_selected_bodies, 3)
+    net_contact_forces_local = net_contact_forces_local.view(net_contact_forces_w.shape)
+    z_forces_local = net_contact_forces_local[:, :, 2] # Shape: (num_envs, num_selected_bodies)
+    max_z_force = torch.max(torch.abs(z_forces_local), dim=1)[0] # Shape: (num_envs,)
+    violation = max_z_force - threshold # Shape: (num_envs,)
+    return torch.sum(violation.clip(min=0.0)) # Shape: (num_envs,)
 
 
 def crawl_balance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
