@@ -405,3 +405,34 @@ def swing_impact_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: S
     return torch.sum(impact_penalty, dim=1)
 
 
+def swing_impact_b_penalty(env: ManagerBasedRLEnv, threshold: float, asset_cfg: SceneEntityCfg, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize high contact forces in the BODY FRAME when a foot lands on the ground (i.e., swing-to-stance transition)."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    asset: Articulation = env.scene[asset_cfg.name]  # Access the robot/asset that owns these bodies
+    first_contact = contact_sensor.compute_first_contact(env.step_dt)[:, sensor_cfg.body_ids]
+    net_contact_forces_w = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
+    body_orientations_w = asset.data.body_quat_w[:, sensor_cfg.body_ids, :]
+    body_forces_flat = math_utils.quat_apply_inverse(
+        body_orientations_w.reshape(-1, 4),
+        net_contact_forces_w.reshape(-1, 3)
+    )
+    body_forces_reshaped = body_forces_flat.view(net_contact_forces_w.shape)
+    z_forces_local_abs = body_forces_reshaped[:, :, 2].abs()
+    violation = (z_forces_local_abs - threshold).clip(min=0.0)
+    impact_penalty_per_body = violation * first_contact
+    return torch.sum(impact_penalty_per_body, dim=1)
+
+
+def total_contact_force_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg,threshold: float) -> torch.Tensor:
+    """
+    Penalize if the sum of Z-axis contact forces (in world frame) from all specified bodies
+    is significantly lower than the robot's total weight.
+    This encourages the robot to maintain sufficient ground contact.
+    """
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    net_contact_forces_w = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
+    total_z_force_sum = torch.sum(net_contact_forces_w[:, :, 2].abs(), dim=1)
+    violation = total_z_force_sum - threshold # Shape: (num_envs,)
+    return torch.sum(violation.clip(min=0.0))
+
+
