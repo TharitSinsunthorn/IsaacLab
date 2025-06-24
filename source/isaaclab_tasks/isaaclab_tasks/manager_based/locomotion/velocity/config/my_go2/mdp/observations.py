@@ -9,7 +9,7 @@ import torch
 from typing import TYPE_CHECKING
 
 import isaaclab.utils.math as math_utils
-from isaaclab.assets import ArticulationData
+from isaaclab.assets import Articulation
 from isaaclab.managers import ManagerTermBase, SceneEntityCfg
 from isaaclab.sensors import FrameTransformerData, ContactSensor
 from . import CPGQuadrupedAction
@@ -46,7 +46,7 @@ def local_contact_force_observation(env: ManagerBasedRLEnv, sensor_cfg: SceneEnt
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     forces_for_selected_bodies_w = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
     sensor_orientation_w = contact_sensor.data.quat_w[:, sensor_cfg.body_ids, :]
-    # Flatten forces and quaternions for the utility function call 
+    # Flatten forces and quaternions for the utility function call
     # Both become (num_envs * num_selected_bodies, X).
     forces_flat = forces_for_selected_bodies_w.reshape(-1, 3)
     quats_flat = sensor_orientation_w.reshape(-1, 4)
@@ -58,6 +58,21 @@ def local_contact_force_observation(env: ManagerBasedRLEnv, sensor_cfg: SceneEnt
     # Flatten the (num_selected_bodies, 3) part into a single vector for observations.
     # If `local_forces_reshaped` is (N, B, 3), this makes it (N, B*3).
     return local_forces_reshaped.flatten(start_dim=1)
+
+
+def body_frame_force_observation(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Contact force vector for the specified bodies (in local frame), flattened for observations."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    asset: Articulation = env.scene[asset_cfg.name] # Access the robot/asset that owns these bodies
+    net_contact_forces_w = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :] # Shape: (num_envs, num_selected_bodies, 3)
+    body_orientations_w = asset.data.body_quat_w[:, sensor_cfg.body_ids, :] # Shape: (num_envs, num_selected_bodies, 4)
+    body_forces_flat = math_utils.quat_apply_inverse(
+        body_orientations_w.reshape(-1, 4),
+        net_contact_forces_w.reshape(-1, 3)
+    )
+    body_forces_flat_reshaped = body_forces_flat.view(net_contact_forces_w.shape)
+    return body_forces_flat_reshaped.flatten(start_dim=1)
+
 
 
 """
