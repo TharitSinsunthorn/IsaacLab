@@ -290,6 +290,23 @@ def contact_force_z_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg
     return torch.sum(violation.clip(min=0.0), dim=1)  # shape: (num_envs,)
 
 
+def body_frame_contact_force_z_penalty(env: ManagerBasedRLEnv, threshold: float, asset_cfg: SceneEntityCfg, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize excessive Z-axis contact forces in the BODY FRAME on specified bodies."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    asset: Articulation = env.scene[asset_cfg.name] # Access the robot/asset that owns these bodies
+    net_contact_forces_w = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :] # Shape: (num_envs, num_selected_bodies, 3)
+    body_orientations_w = asset.data.body_quat_w[:, sensor_cfg.body_ids, :] # Shape: (num_envs, num_selected_bodies, 4)
+    body_forces_flat = math_utils.quat_apply_inverse(
+        body_orientations_w.reshape(-1, 4),
+        net_contact_forces_w.reshape(-1, 3)
+    )
+    body_forces_flat_reshaped = body_forces_flat.view(net_contact_forces_w.shape)
+    z_forces_local = body_forces_flat_reshaped[:, :, 2]
+    max_z_force = torch.max(torch.abs(z_forces_local), dim=1)[0] # Shape: (num_envs,)
+    violation = max_z_force - threshold # Shape: (num_envs,)
+    return torch.sum(violation.clip(min=0.0)) # Shape: (num_envs,)
+
+
 def local_contact_force_z_penalty(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """Penalize excessive Z-axis contact forces in the LOCAL FRAME on specified bodies."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
