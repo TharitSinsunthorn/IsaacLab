@@ -447,14 +447,15 @@ class LowGravityLocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 4
+        self.decimation = 2
         self.episode_length_s = 20.0
         # simulation settings
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
-        self.sim.physics_material.friction_combine_mode = "multiply"
-        self.sim.physics_material.restitution_combine_mode = "multiply"
-        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
+        self.sim.physics_material = self.scene.terrain.physics_material
+        # self.sim.physics_material.friction_combine_mode = "multiply"
+        # self.sim.physics_material.restitution_combine_mode = "multiply"
+        self.sim.physx.gpu_max_rigid_patch_count = 20 * 2**15
         self.sim.gravity = (0.0, 0.0, -1.62)
         # update sensor update periods
         # we tick all the sensors based on the smallest update period (physics update period)
