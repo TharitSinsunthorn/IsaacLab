@@ -233,6 +233,19 @@ class ObservationsCfg:
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
+        imu_lin_acc = ObsTerm(
+            func=mdp.imu_lin_acc,
+            params={"asset_cfg": SceneEntityCfg("imu")},
+            noise=Unoise(n_min=-0.1, n_max=0.1),
+        )
+        contact_force_vector = ObsTerm(
+            func=mdp_go2.body_frame_force_observation, # Your custom function
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")
+            },
+            noise= Unoise(n_min=-0.01, n_max=0.01),
+        )
         actions = ObsTerm(func=mdp.last_action)
         cpg_state = ObsTerm(func=mdp_go2.get_cpg_internal_states)
         height_scan = ObsTerm(
