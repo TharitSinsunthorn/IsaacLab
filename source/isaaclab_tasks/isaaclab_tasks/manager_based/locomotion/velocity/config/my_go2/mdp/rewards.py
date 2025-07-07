@@ -436,3 +436,117 @@ def total_contact_force_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityC
     return torch.sum(violation.clip(min=0.0))
 
 
+"""
+GIA
+"""
+
+def stability_margin_reward(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    normalize_angle: float, # This should be math.pi / 2
+) -> torch.Tensor:
+    """
+    Rewards the robot for maintaining a high stability margin based on the Gravito-Inertial Inclination Margin (GIIM).
+    This encourages the Gravito-Inertial Acceleration (GIA) vector to point well inside the stability polyhedron.
+    
+    References:
+    - "Towards Legged Locomotion on Steep Planetary Terrain" (Weibel et al., 2023) 
+    - "Dynamics and Equilibrium of Legged-Climbing Robots" (Ribeiro, 2021) 
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+    #----------- GIA vector calculation ---------#
+    g_tensor = env.sim._gravity_tensor.clone().detach()
+
+    # Expand body_mass for broadcasting with acceleration
+    body_mass_on_device = asset.data.default_mass.to(env.device)
+    body_mass_expanded = body_mass_on_device.unsqueeze(-1) # (num_envs, num_bodies, 1, 1) -> (num_envs, num_bodies, 1) after first squeeze
+    # Calculate m_j * dot_r_j for all bodies
+    mass_times_accel = body_mass_expanded * asset.data.body_lin_acc_w # (num_envs, num_bodies, 3)
+    sum_mass_times_accel = torch.sum(mass_times_accel, dim=1) # (num_envs, 3)
+    # Calculate total robot mass (w) for each environment
+    total_robot_mass = torch.sum(asset.data.default_mass, dim=1) # (num_envs, 1)
+    total_robot_mass_expanded = total_robot_mass.unsqueeze(-1) # Shape: (num_envs, 1)
+    # Calculate dot_r_g (CoM acceleration)
+    dot_r_g = sum_mass_times_accel / (total_robot_mass_expanded.to(env.device) + 1e-6) # (num_envs, 3)
+    # Calculate Gravito-Inertial Acceleration (GIA) 
+    a_gi = g_tensor - dot_r_g # (num_envs, 3)
+    #----------- GIA vector calculation ---------#
+
+    #----------- Define Stability Polyhedron and Tumbling Axes ----------#
+    # r_g = (1/w) * sum(m_j * r_j)
+    # mass_times_pos = body_mass_expanded * asset.data.body_pos_w # (num_envs, num_bodies, 3)
+    # Sum across all bodies for each environment
+    # sum_mass_times_pos = torch.sum(mass_times_pos, dim=1) # (num_envs, 3)
+    # robot_cog_w = sum_mass_times_pos / (total_robot_mass_expanded.to(env.device) + 1e-6) # (num_envs, 3)
+    robot_cog_w = asset.data.root_com_pos_w
+    # print(f"com root{asset.data.root_com_pos_w}") # Debug print
+    # base_body_idx = asset.find_bodies(["base"])[0] # Assuming a single "base" body per robot instance
+    # base_pos_w = asset.data.body_pos_w[:, base_body_idx, :] # Shape: (num_envs, 3)
+    # print(f"robot_cog_w: {robot_cog_w - base_pos_w}") # Debug print
+
+    # Positions of relevant contact bodies in world frame (p_e,i)
+    potential_contact_points_w = contact_sensor.data.pos_w[:, sensor_cfg.body_ids, :]
+    # Get contact status to filter for active contact points
+    contact_forces_on_selected_bodies = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
+    # # A threshold (e.g., 0.1 N) for contact force to consider a body "in contact"
+    is_in_contact = contact_forces_on_selected_bodies.norm(dim=-1) > 0.1 
+
+    # Iterate over environments since the number of active contact points (and thus faces) varies.
+    rewards_per_env = torch.zeros(env.num_envs, device=env.device)
+    for i in range(env.num_envs):
+        env_active_contact_indices = torch.where(is_in_contact[i])[0]
+        
+        env_cog = robot_cog_w[i]
+        env_a_gi = a_gi[i]
+
+        if env_active_contact_indices.numel() < 2:
+            # If less than 2 contact points, the support polygon collapses, leading to instability.
+            # Assign a strong penalty.
+            rewards_per_env[i] = 0.0 # Large negative value for very unstable state
+            continue
+
+        env_active_contacts = potential_contact_points_w[i, env_active_contact_indices, :]
+        # env_active_contacts shape: (num_active_contacts, 3)
+
+        total_angle_reward = 0.0
+        
+        # Iterate over all unique pairs of active contact points to define tumbling axes
+        # Each pair forms an edge of the support polygon, and combined with CoG, forms a face of the polyhedron.
+        for j in range(env_active_contacts.shape[0]):
+            for k in range(j + 1, env_active_contacts.shape[0]):
+                p_e_a = env_active_contacts[j] # p_e,a in the thesis 
+                p_e_b = env_active_contacts[k] # p_e,b in the thesis 
+
+                # Calculate the normal vector (n_gab) for the face formed by CoG, p_e_b, p_e_a 
+                # n_gab = (r_g - p_e_b) x (r_g - p_e_a) 
+                vec_cog_to_pe_b = env_cog - p_e_b
+                vec_cog_to_pe_a = env_cog - p_e_a
+                
+                n_gab = torch.linalg.cross(vec_cog_to_pe_b, vec_cog_to_pe_a)
+                n_gab_norm = torch.norm(n_gab) + 1e-6 # Add epsilon for numerical stability
+                n_gab_unit = n_gab / n_gab_norm # Normalize to unit vector
+
+                # Calculate the angle between a_gi and n_gab
+                # arccos( (n_gab . a_gi) / |a_gi| ) 
+                dot_product = torch.dot(n_gab_unit, env_a_gi)
+                a_gi_norm = torch.norm(env_a_gi) + 1e-6
+
+                # Handle potential division by zero if GIA is zero
+                if a_gi_norm.item() == 0.0:
+                    angle = torch.tensor(0.0, device=env.device, dtype=env.action_term_cfg.dtype)
+                else:
+                    cosine_angle = dot_product / a_gi_norm
+                    # Clamp to avoid NaN from floating point inaccuracies outside [-1, 1]
+                    cosine_angle = torch.clamp(cosine_angle, -1.0, 1.0)
+                    angle = torch.acos(cosine_angle) # Angle in radians
+
+                # Reward term for this face: [arccos((n_gab . a_gi) / |a_gi|) - pi/2] 
+                term_reward = angle - normalize_angle # normalize_angle should be pi/2 radians
+                total_angle_reward += term_reward
+        
+        rewards_per_env[i] = total_angle_reward
+
+    return rewards_per_env
