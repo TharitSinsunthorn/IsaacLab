@@ -44,6 +44,7 @@ class CPGQuadrupedAction(ActionTerm):
     _mux: Dict[str, torch.Tensor] = {}
     _muy: Dict[str, torch.Tensor] = {}
     _omega: Dict[str, torch.Tensor] = {}
+    _gp: Dict[str, torch.Tensor] = {}
 
     _hip_offsets: Dict[str, torch.Tensor] = {}
 
@@ -130,6 +131,7 @@ class CPGQuadrupedAction(ActionTerm):
             self._mux[leg_name] = torch.full((self.num_envs,), leg_cfg.init_mux, device=self.device)
             self._muy[leg_name] = torch.full((self.num_envs,), leg_cfg.init_muy, device=self.device)
             self._omega[leg_name] = torch.full((self.num_envs,), leg_cfg.init_omega, device=self.device)
+            self._gp[leg_name] = torch.zeros(self.num_envs, device=self.device)  # Default to 0.0
 
             # Reshape to (1, 3) so it can be broadcasted when added to (num_envs, 3)
             self.mu_min, self.mu_max = self._cpg_param_ranges["mu"]
@@ -139,7 +141,7 @@ class CPGQuadrupedAction(ActionTerm):
 
         # Override action_dim inherited from parent:
         # RL agent outputs 3 parameters (mux, muy, omega) for each of the 4 legs
-        action_dim = len(self.cfg.legs) * 3
+        action_dim = len(self.cfg.legs) * 4
         # Re-initialize _raw_actions with the new dimension
         self._raw_actions = torch.zeros(self.num_envs, action_dim, device=self.device)
         self._processed_actions = torch.zeros_like(self.raw_actions)
@@ -187,6 +189,25 @@ class CPGQuadrupedAction(ActionTerm):
         self._raw_actions[:] = actions
         self._processed_actions[:] = self.raw_actions * self._scale
 
+        # Get contact forces from observation manager
+        obs_flat = self.env.observation_manager._obs_buffer["policy"]  # shape: (num_envs, total_obs_dim)
+
+        # Find index of the term in the flattened vector
+        term_names = self.env.observation_manager._group_obs_term_names["policy"]
+        term_shapes = self.env.observation_manager._group_obs_term_dim["policy"]
+
+        # Compute offset
+        start_idx = 0
+        for name, shape in zip(term_names, term_shapes):
+            if name == "contact_force_vector":
+                break
+            start_idx += int(np.prod(shape))
+
+        end_idx = start_idx + int(np.prod((4, 3)))  # or use shape directly
+        contact_force_flat = obs_flat[:, start_idx:end_idx]  # shape: (num_envs, 12)
+        contact_force = contact_force_flat.view(-1, 4, 3)    # shape: (num_envs, 4, 3)
+
+
         # --- Map raw RL actions to CPG parameters ---
         # Assuming actions are ordered per leg: [delta_mux_FL, delta_muy_FL, delta_omega_FL, delta_mu_FR, ...]
         action_idx_offset = 0
@@ -195,13 +216,16 @@ class CPGQuadrupedAction(ActionTerm):
             delta_mux = self._processed_actions[:, action_idx_offset]
             delta_muy = self._processed_actions[:, action_idx_offset + 1]
             delta_omega = self._processed_actions[:, action_idx_offset + 2]
+            delta_gp = self._processed_actions[:, action_idx_offset + 3]
 
             # # Map mu
             # self._mux[leg_name] = torch.clamp(delta_mux, min=self.mu_min, max=self.mu_max)
             # self._muy[leg_name] = torch.clamp(delta_muy, min=self.mu_min, max=self.mu_max)
 
-            # # # Map omega
+            # # Map omega
             # self._omega[leg_name] = torch.clamp(delta_omega, min=self.omega_min, max=self.omega_max)
+
+            # self._gp[leg_name] = torch.clamp(delta_gp, min=0.0, max=0.1)
 
 
             # Map mu
@@ -210,11 +234,13 @@ class CPGQuadrupedAction(ActionTerm):
             
             # Map omega
             self._omega[leg_name] = self.omega_min + (delta_omega + 1.0) / 2.0 * (self.omega_max - self.omega_min)
+            
+            self._gp[leg_name] = (delta_gp + 1.0) / 2.0 * (self.cfg.global_gp)
 
-            action_idx_offset += 3 # Move to next leg's parameters
+            action_idx_offset += 4 # Move to next leg's parameters
 
         # --- Update CPG states and compute desired foot positions for all legs ---
-        for leg_name in self.cfg.legs.keys():
+        for i, leg_name in enumerate(self.cfg.legs.keys()):
             # CPG Amplitude dynamics (Eq 1 from paper)
             a_val = self.cpg_alpha
             rx_val = self._rx[leg_name]
@@ -252,7 +278,9 @@ class CPGQuadrupedAction(ActionTerm):
                         # Add to the total coupling contribution for the current leg
                         coupling_contribution += 0.5 * (self._rx[other_leg_name] + self._ry[other_leg_name]) \
                             * w_ij * torch.sin(theta_j - self._theta[leg_name] - phi_ij)
-
+                Ni = contact_force[:, i, 2].unsqueeze(1)  # Normal force for the current leg
+                cos_theta_expanded = torch.cos(self._theta[leg_name]).unsqueeze(1)
+                coupling_contribution += (-0.8 * Ni * cos_theta_expanded).squeeze(1)
                 self._theta[leg_name] += (omega_val + coupling_contribution) * self.sim_dt
             else:
                 self._theta[leg_name] += (omega_val) * self.sim_dt
@@ -263,13 +291,13 @@ class CPGQuadrupedAction(ActionTerm):
             sin_theta = torch.sin(self._theta[leg_name])
 
             gc = self.cfg.global_gc
-            gp = self.cfg.global_gp
+            # gp = self.cfg.global_gp
             h = self.cfg.global_h
             d_step = self.cfg.global_d_step
 
             ee_x_des_relative = -d_step * (2*self._rx[leg_name] - 3) * cos_theta
             ee_y_des_relative = -d_step * (2*self._ry[leg_name] - 3) * cos_theta
-            ee_z_des_relative = -h + torch.where(sin_theta > 0, gc, gp) * sin_theta
+            ee_z_des_relative = -h + torch.where(sin_theta > 0, gc, self._gp[leg_name]) * sin_theta
 
             # Stack the relative positions
             ee_pos_des_relative = torch.stack((ee_x_des_relative, ee_y_des_relative, ee_z_des_relative), dim=-1)
@@ -324,6 +352,7 @@ class CPGQuadrupedAction(ActionTerm):
                 self._mux[leg_name][:] = self.cfg.legs[leg_name].init_mux
                 self._muy[leg_name][:] = self.cfg.legs[leg_name].init_muy
                 self._omega[leg_name][:] = self.cfg.legs[leg_name].init_omega
+                self._gp[leg_name][:] = 0.0 
             else: # Reset specific environments
                 self._rx[leg_name][env_ids] = self.cfg.legs[leg_name].init_mux
                 self._rxdot[leg_name][env_ids] = 0.0
@@ -333,6 +362,7 @@ class CPGQuadrupedAction(ActionTerm):
                 self._mux[leg_name][env_ids] = self.cfg.legs[leg_name].init_mux
                 self._muy[leg_name][env_ids] = self.cfg.legs[leg_name].init_muy
                 self._omega[leg_name][env_ids] = self.cfg.legs[leg_name].init_omega
+                self._gp[leg_name][env_ids] = 0.0
 
 
     """
