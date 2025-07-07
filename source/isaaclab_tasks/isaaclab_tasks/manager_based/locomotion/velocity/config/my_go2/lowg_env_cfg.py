@@ -6,6 +6,8 @@
 from isaaclab.utils import configclass
 
 from isaaclab_tasks.manager_based.locomotion.velocity.low_G_env_cfg import LowGravityLocomotionVelocityRoughEnvCfg
+import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
+import math
 
 ##
 # Pre-defined configs
@@ -24,7 +26,10 @@ class LowGravityUnitreeGo2RoughEnvCfg(LowGravityLocomotionVelocityRoughEnvCfg):
         # scale down the terrains because the robot is small
 
         # reduce action scale
-        self.actions.joint_pos.scale = 0.25
+        # self.actions.joint_pos.scale = 0.25
+
+        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfg.Ranges(
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-0.7, 0.7), ang_vel_z=(-0.4, 0.4), heading=(-math.pi, math.pi))
 
         # event
         self.events.push_robot = None
