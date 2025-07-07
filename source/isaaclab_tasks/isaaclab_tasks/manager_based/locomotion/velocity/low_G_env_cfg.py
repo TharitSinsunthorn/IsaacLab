@@ -4,10 +4,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import math
+import numpy as np
+import torch
 from dataclasses import MISSING
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -156,7 +159,60 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
 
-    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True)
+    # joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True)
+
+    quadruped_action_cfg = mdp_go2.CPGQuadrupedActionCfg(
+        asset_name="robot",
+        controller=DifferentialIKControllerCfg(
+            command_type="position",
+            use_relative_mode=False,
+            ik_method="dls",
+            ik_params={"lambda_val": 0.1},
+        ),
+        legs={
+            "FL": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
+                joint_names=["FL_hip_joint", "FL_thigh_joint", "FL_calf_joint"],
+                body_name="FL_foot",
+                # init_theta=np.random.uniform(-math.pi, math.pi),
+                # init_theta=math.pi,
+                init_theta=math.pi/2,
+                hip_offset=(0.19, 0.142, 0.0)
+            ),
+            "FR": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
+                joint_names=["FR_hip_joint", "FR_thigh_joint", "FR_calf_joint"],
+                body_name="FR_foot",
+                # init_theta=np.random.uniform(-math.pi, math.pi),
+                # init_theta=math.pi/4,
+                init_theta=math.pi/2,
+                hip_offset=(0.19, -0.142, 0.0)
+            ),
+            "RL": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
+                joint_names=["RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"],
+                body_name="RL_foot",
+                # init_theta=np.random.uniform(-math.pi, math.pi),
+                # init_theta=3*math.pi/4,
+                init_theta=math.pi/2,
+                hip_offset=(-0.2, 0.142, 0.0)
+            ),
+            "RR": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
+                joint_names=["RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"],
+                body_name="RR_foot",
+                # init_theta=np.random.uniform(-math.pi, math.pi),
+                # init_theta=0.0,
+                init_theta=math.pi/2,
+                hip_offset=(-0.2, -0.142, 0.0)
+            )
+        },
+        # You can override global CPG parameters here
+        global_h=0.24, # Start height
+        global_gc=0.1, # Ground clearance for swing
+        global_gp=0.05, # Ground penetration for stance
+        global_d_step=0.17, # Step size scale
+        mu_range=(1.0, 2.0), # RL agent can choose mu between 0.8 and 1.8
+        omega_range=(0.0, 20.0), # RL agent can choose frequency
+        coupling_enable=True,
+        scale = 1.0
+    )
 
 
 @configclass
