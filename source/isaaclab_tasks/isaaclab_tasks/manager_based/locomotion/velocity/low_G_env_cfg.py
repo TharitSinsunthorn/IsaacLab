@@ -126,8 +126,10 @@ class MySceneCfg(InteractiveSceneCfg):
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",
         spawn=sim_utils.DomeLightCfg(
-            intensity=750.0,
-            texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
+            intensity=75000.0,
+            # texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
+            # texture_file=f"/home/srl-limb-ws2/ilab_tharit/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/my_go2/texture/starmap_2020_4k.exr",
+             texture_file=f"/home/srl-limb-ws2/ilab_tharit/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/my_go2/texture/earthlike_planet.hdr",
         ),
     )
 
