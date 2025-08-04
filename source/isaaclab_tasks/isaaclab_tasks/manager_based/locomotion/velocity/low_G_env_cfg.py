@@ -472,6 +472,22 @@ class RewardsCfg:
             "threshold": 50.0,
         },
     )
+    energy_consumption = RewTerm(
+        func=mdp_go2.energy_penalty,
+        weight=-0.01,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+        },
+    )
+    gia_reward = RewTerm(
+        func=mdp_go2.stability_margin_reward,
+        weight=0.05,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "normalize_angle": torch.pi/2
+        }
+    )
 
 @configclass
 class TerminationsCfg:
