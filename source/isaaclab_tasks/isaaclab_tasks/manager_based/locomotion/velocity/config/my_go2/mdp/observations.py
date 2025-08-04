@@ -125,6 +125,7 @@ def get_cpg_internal_states(env: ManagerBasedRLEnv) -> torch.Tensor:
         current_ry = cpg_action_term._ry[leg_name]
         current_rydot = cpg_action_term._rydot[leg_name]
         current_theta = cpg_action_term._theta[leg_name]
+        current_gp = cpg_action_term._gp[leg_name]
 
         # Compute theta_dot = omega + coupling
         # If you already apply coupling during training, this is approximate:
@@ -137,6 +138,7 @@ def get_cpg_internal_states(env: ManagerBasedRLEnv) -> torch.Tensor:
             current_rydot,
             current_theta,
             current_theta_dot,
+            current_gp
 
         ], dim=1)
 
