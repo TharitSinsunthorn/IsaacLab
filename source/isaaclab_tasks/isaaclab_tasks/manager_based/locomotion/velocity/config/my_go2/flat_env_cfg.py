@@ -80,32 +80,32 @@ class LowGravityUnitreeGo2FlatEnvCfg(LowGravityUnitreeGo2RoughEnvCfg):
 
         # override rewards
         # --task
-        self.rewards.track_lin_vel_xy_exp.weight = 1.5 # default 1.5
+        self.rewards.track_lin_vel_xy_exp.weight = 2.0 # default 1.5
         self.rewards.track_ang_vel_z_exp.weight = 0.75 # default 0.75
+        self.rewards.feet_air_time.weight = 0.125 # default 0.125
+        self.rewards.foot_clearance = None # default 0.1
+        self.rewards.feet_stance.weight = 0.1
+        self.rewards.crawl_reward = None
         
         # -- penalties
+        # body related
+        self.rewards.lin_vel_z_l2 = None # default -2.0
         self.rewards.ang_vel_xy_l2.weight = -0.05 # default -0.05
-        self.rewards.body_lin_acc_l2.weight = -2.5e-4 # -5.0e-4
-        self.rewards.dof_torques_l2 = None
-        # self.rewards.dof_torques_l2.weight = -1.6e-4 # default -1.0e-5
-        self.rewards.dof_acc_l2.weight = -2.5e-3 # default -2.5
+        self.rewards.flat_orientation_l2.weight = -1.0
+        self.rewards.body_lin_acc_l2.weight = -5.0e-4 # -5.0e-4
+        # joint related
+        self.rewards.dof_torques_l2 = None# default -1.0e-5
+        self.rewards.dof_acc_l2.weight = -2.5e-7 # default -2.5
+        self.rewards.dof_vel_l2.weight = -0.001 # default -0.01
+        self.rewards.dof_pos_limits.weight = -1.0 # default 0.0
         self.rewards.action_rate_l2.weight = -0.005 # default -0.01
-        self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.feet_air_time.weight = 1.0 # default 0.125
-        self.rewards.undesired_contacts = None
-        # self.rewards.undesired_contacts.params["sensor_cfg"].body_names = ".*_thigh"
-        # self.rewards.undesired_contacts.weight = -0.015 # default -1.0
-        self.rewards.contact_forces = None
-        # self.rewards.contact_forces.params["sensor_cfg"].body_names = ".*_foot"
-        # self.rewards.contact_forces.weight = -0.25 # default -0.25
-        self.rewards.flat_orientation_l2.weight = -0.05
-        
-        self.rewards.dof_pos_limits = None
-        # self.rewards.dof_pos_limits.weight = -0.0 # default 0.0
-        
-        # self.rewards.feet_slides = None
-        self.rewards.feet_slides.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.feet_air_time.weight = -0.1 # default -0.1
+        # foot related
+        self.rewards.contact_force_var.weight = -0.001 # default -0.1
+        self.rewards.undesired_contacts.weight = -1.0
+        self.rewards.contact_forces = None # default -0.25s
+        self.rewards.feet_contact_limit = None
+        self.rewards.foot_slip = None
+        self.rewards.swing_impact = None
 
         # change terrain to flat
         self.scene.terrain.terrain_type = "plane"
