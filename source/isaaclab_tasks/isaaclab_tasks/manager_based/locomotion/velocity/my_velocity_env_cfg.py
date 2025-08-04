@@ -410,6 +410,13 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces"),
         },
     )
+    energy_consumption = RewTerm(
+        func=mdp_go2.energy_penalty,
+        weight=-0.01,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+        },
+    )
 
 
 @configclass
