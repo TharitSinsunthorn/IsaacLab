@@ -375,11 +375,12 @@ class RewardsCfg:
         },
     )
     contact_forces = RewTerm(
-        func=mdp.contact_forces,
+        func=mdp_go2.body_frame_contact_force_z_penalty,
         weight=-0.25,
         params={
+            "threshold": 30.0,
+            "asset_cfg": SceneEntityCfg("robot"),
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "threshold": 80.0,
         },
     )
     feet_contact_limit = RewTerm(
