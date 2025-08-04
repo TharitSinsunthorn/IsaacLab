@@ -75,7 +75,12 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
     )
-    contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
+    contact_forces = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/.*",
+        history_length=3,
+        track_air_time=True,
+        track_pose=True
+    )
     # lights
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",
@@ -183,20 +188,20 @@ class ObservationsCfg:
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
-        contact_state = ObsTerm(
-            func=mdp_go2.contact_bool,
-            params={
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-                "force_threshold": 1.0,
-            },
-        )
-        # contact_force_vector = ObsTerm(
-        #     func=mdp_go2.contact_force, # Your custom function
+        # contact_state = ObsTerm(
+        #     func=mdp_go2.contact_bool,
         #     params={
-        #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")
+        #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+        #         "force_threshold": 1.0,
         #     },
-        #     noise= Unoise(n_min=-0.1, n_max=0.1),
         # )
+        contact_force_vector = ObsTerm(
+            func=mdp_go2.local_contact_force_observation, # Your custom function
+            params={
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")
+            },
+            noise= Unoise(n_min=-0.01, n_max=0.01),
+        )
         actions = ObsTerm(func=mdp.last_action)
         cpg_state = ObsTerm(func=mdp_go2.get_cpg_internal_states)
         height_scan = ObsTerm(
