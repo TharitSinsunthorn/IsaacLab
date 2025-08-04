@@ -61,11 +61,11 @@ class UnitreeGo2FlatPPORunnerCfg(UnitreeGo2RoughPPORunnerCfg):
 
 @configclass
 class LowGravityUnitreeGo2RoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
-    num_steps_per_env = 24 # default 24
+    num_steps_per_env = 48 # default 24
     max_iterations = 1500
     save_interval = 50
     experiment_name = "unitree_go2_rough_lowG"
-    empirical_normalization = False
+    empirical_normalization = True
     # policy = RslRlPpoActorCriticCfg(
     #     init_noise_std=1.0,
     #     actor_hidden_dims=[512, 256, 128],
