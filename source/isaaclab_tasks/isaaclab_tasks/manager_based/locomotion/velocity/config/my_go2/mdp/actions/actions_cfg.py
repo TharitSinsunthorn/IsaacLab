@@ -84,20 +84,48 @@ class CPGQuadrupedActionCfg(ActionTermCfg):
         hip_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     coupling_weights: dict[str, float] = {
-        "FL_FR": 6.5, "FR_FL": 6.5, # Front legs anti-phase
-        "RL_RR": 6.5, "RR_RL": 6.5, # Rear legs anti-phase
-        "FL_RR": 6.5, "RR_FL": 6.5, # Diagonal coupling (FL-RR) anti-phase
-        "FR_RL": 6.5, "RL_FR": 6.5, # Diagonal coupling (FR-RL) anti-phase
-        "FL_RL": 0.0, "RL_FL": 0.0,  # No direct front-to-rear coupling (trot is more diagonal)
-        "FR_RR": 0.0, "RR_FR": 0.0,
+        "FL_FR": 4.5, "FR_FL": 4.5, # Front legs anti-phase
+        "RL_RR": 4.5, "RR_RL": 4.5, # Rear legs anti-phase
+        "FL_RR": 4.5, "RR_FL": 4.5, # Diagonal coupling (FL-RR) anti-phase
+        "FR_RL": 4.5, "RL_FR": 4.5, # Diagonal coupling (FR-RL) anti-phase
+        "FL_RL": 4.5, "RL_FL": 4.5,  # No direct front-to-rear coupling (trot is more diagonal)
+        "FR_RR": 4.5, "RR_FR": 4.5,
     }
+    # Crawl gait
+    # phase_offsets: dict[str, float] = {
+    #     "FL_FR": -torch.pi, "FR_FL": torch.pi,
+    #     "RL_RR": -torch.pi, "RR_RL": torch.pi,
+    #     "FL_RR": torch.pi/2, "RR_FL": -torch.pi/2,
+    #     "FR_RL": torch.pi/2, "RL_FR": -torch.pi/2,
+    #     "FL_RL": -torch.pi/2, "RL_FL": torch.pi/2,  # No direct front-to-rear coupling (trot is more diagonal)
+    #     "FR_RR": -torch.pi/2, "RR_FR": torch.pi/2
+    # }
+    # Trot gait
+    # phase_offsets: dict[str, float] = {
+    #     "FL_FR": torch.pi, "FR_FL": torch.pi,
+    #     "RL_RR": torch.pi, "RR_RL": torch.pi,
+    #     "FL_RR": 0.0, "RR_FL": 0.0,
+    #     "FR_RL": 0.0, "RL_FR": 0.0,
+    #     "FL_RL": torch.pi, "RL_FL": torch.pi,
+    #     "FR_RR": torch.pi, "RR_FR": torch.pi
+    # }
+    # Gallop gait
+    # phase_offsets: dict[str, float] = {
+    #     "FL_FR": 0.0, "FR_FL": 0.0,
+    #     "RL_RR": 0.0, "RR_RL": 0.0,
+    #     "FL_RR": torch.pi, "RR_FL": torch.pi,
+    #     "FR_RL": torch.pi, "RL_FR": torch.pi,
+    #     "FL_RL": torch.pi, "RL_FL": torch.pi,
+    #     "FR_RR": torch.pi, "RR_FR": torch.pi
+    # }
+    # Jump gait
     phase_offsets: dict[str, float] = {
-        "FL_FR": torch.pi, "FR_FL": torch.pi,
-        "RL_RR": torch.pi, "RR_RL": torch.pi,
+        "FL_FR": 0.0, "FR_FL": 0.0,
+        "RL_RR": 0.0, "RR_RL": 0.0,
         "FL_RR": 0.0, "RR_FL": 0.0,
         "FR_RL": 0.0, "RL_FR": 0.0,
-        "FL_RL": torch.pi, "RL_FL": torch.pi,  # No direct front-to-rear coupling (trot is more diagonal)
-        "FR_RR": torch.pi, "RR_FR": torch.pi,
+        "FL_RL": 0.0, "RL_FL": 0.0,  # No direct front-to-rear coupling (trot is more diagonal)
+        "FR_RR": 0.0, "RR_FR": 0.0
     }
     coupling_enable: bool = False
 
