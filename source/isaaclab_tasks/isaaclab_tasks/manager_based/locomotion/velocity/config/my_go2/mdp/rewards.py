@@ -439,7 +439,6 @@ def total_contact_force_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityC
 """
 GIA
 """
-
 def stability_margin_reward(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg,
@@ -476,77 +475,96 @@ def stability_margin_reward(
     #----------- GIA vector calculation ---------#
 
     #----------- Define Stability Polyhedron and Tumbling Axes ----------#
-    # r_g = (1/w) * sum(m_j * r_j)
-    # mass_times_pos = body_mass_expanded * asset.data.body_pos_w # (num_envs, num_bodies, 3)
-    # Sum across all bodies for each environment
-    # sum_mass_times_pos = torch.sum(mass_times_pos, dim=1) # (num_envs, 3)
-    # robot_cog_w = sum_mass_times_pos / (total_robot_mass_expanded.to(env.device) + 1e-6) # (num_envs, 3)
-    robot_cog_w = asset.data.root_com_pos_w
-    # print(f"com root{asset.data.root_com_pos_w}") # Debug print
-    # base_body_idx = asset.find_bodies(["base"])[0] # Assuming a single "base" body per robot instance
-    # base_pos_w = asset.data.body_pos_w[:, base_body_idx, :] # Shape: (num_envs, 3)
-    # print(f"robot_cog_w: {robot_cog_w - base_pos_w}") # Debug print
+    robot_cog_w = asset.data.root_com_pos_w # (num_envs, 3)
+    # Get contact point positions for bodies specified in sensor_cfg (e.g., feet)
+    potential_contact_points_w = contact_sensor.data.pos_w[:, sensor_cfg.body_ids, :] # (num_envs, num_feet, 3)
+    contact_forces_on_feet = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :] # (num_envs, num_feet, 3)
+    is_in_contact_feet = contact_forces_on_feet.norm(dim=-1) > 0.1 # (num_envs, num_feet)
 
-    # Positions of relevant contact bodies in world frame (p_e,i)
-    potential_contact_points_w = contact_sensor.data.pos_w[:, sensor_cfg.body_ids, :]
-    # Get contact status to filter for active contact points
-    contact_forces_on_selected_bodies = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
-    # # A threshold (e.g., 0.1 N) for contact force to consider a body "in contact"
-    is_in_contact = contact_forces_on_selected_bodies.norm(dim=-1) > 0.1 
+    num_feet = potential_contact_points_w.shape[1]
+    if num_feet < 2:
+        return torch.zeros(env.num_envs, device=env.device, dtype=a_gi.dtype)
 
-    # Iterate over environments since the number of active contact points (and thus faces) varies.
-    rewards_per_env = torch.zeros(env.num_envs, device=env.device)
-    for i in range(env.num_envs):
-        env_active_contact_indices = torch.where(is_in_contact[i])[0]
-        
-        env_cog = robot_cog_w[i]
-        env_a_gi = a_gi[i]
+    # --- Vectorized Calculation of Stability for adjacent feet pairs ---
 
-        if env_active_contact_indices.numel() < 2:
-            # If less than 2 contact points, the support polygon collapses, leading to instability.
-            # Assign a strong penalty.
-            rewards_per_env[i] = 0.0 # Large negative value for very unstable state
-            continue
+    # Define adjacent pairs of feet for a quadruped (assuming a standard order like FL, FR, RL, RR in sensor_cfg.body_ids)
+    # This list of pairs corresponds to the edges of the support polygon, or "subsequent body parts".
+    # This must match the order in which body_ids are stored in sensor_cfg.body_ids.
+    # Example for (0=FL, 1=FR, 2=RL, 3=RR):
+    # (FL, FR), (FR, RR), (RR, RL), (RL, FL) - forms the quadrilateral base
+    # (FL, RR) and (FR, RL) would be diagonals if included, but paper implies only subsequent.
+    # Make sure these indices are within the actual `num_feet`.
+    if num_feet == 4: # Standard quadruped
+        # These are the 4 edges of the support quadrilateral
+        adjacent_pair_indices = torch.tensor([
+            [0, 1], # FL-FR
+            [1, 3], # FR-RR (assuming RR is index 3)
+            [3, 2], # RR-RL (assuming RL is index 2)
+            [2, 0]  # RL-FL (assuming FL is index 0)
+        ], device=env.device, dtype=torch.long)
+    else: # Fallback to all combinations if not a standard 4-leg, or if you explicitly want all pairs.
+          # For a generic multi-legged robot or for debugging with variable leg count:
+        adjacent_pair_indices = torch.combinations(torch.arange(num_feet, device=env.device), r=2) 
 
-        env_active_contacts = potential_contact_points_w[i, env_active_contact_indices, :]
-        # env_active_contacts shape: (num_active_contacts, 3)
+    num_relevant_pairs = adjacent_pair_indices.shape[0]
 
-        total_angle_reward = 0.0
-        
-        # Iterate over all unique pairs of active contact points to define tumbling axes
-        # Each pair forms an edge of the support polygon, and combined with CoG, forms a face of the polyhedron.
-        for j in range(env_active_contacts.shape[0]):
-            for k in range(j + 1, env_active_contacts.shape[0]):
-                p_e_a = env_active_contacts[j] # p_e,a in the thesis 
-                p_e_b = env_active_contacts[k] # p_e,b in the thesis 
+    # Expand A_GI and robot_cog_w to match the dimensions needed for pairs
+    a_gi_expanded = a_gi.unsqueeze(1).expand(-1, num_relevant_pairs, -1) # (num_envs, num_pairs, 3)
+    robot_cog_w_expanded = robot_cog_w.unsqueeze(1).expand(-1, num_relevant_pairs, -1) # (num_envs, num_pairs, 3)
 
-                # Calculate the normal vector (n_gab) for the face formed by CoG, p_e_b, p_e_a 
-                # n_gab = (r_g - p_e_b) x (r_g - p_e_a) 
-                vec_cog_to_pe_b = env_cog - p_e_b
-                vec_cog_to_pe_a = env_cog - p_e_a
-                
-                n_gab = torch.linalg.cross(vec_cog_to_pe_b, vec_cog_to_pe_a)
-                n_gab_norm = torch.norm(n_gab) + 1e-6 # Add epsilon for numerical stability
-                n_gab_unit = n_gab / n_gab_norm # Normalize to unit vector
+    # Get positions of foot A and foot B for all relevant pairs in all environments
+    p_e_a_all_pairs = potential_contact_points_w[:, adjacent_pair_indices[:, 0], :] # (num_envs, num_pairs, 3)
+    p_e_b_all_pairs = potential_contact_points_w[:, adjacent_pair_indices[:, 1], :] # (num_envs, num_pairs, 3)
+    # print(p_e_a_all_pairs.shape, p_e_b_all_pairs.shape)
 
-                # Calculate the angle between a_gi and n_gab
-                # arccos( (n_gab . a_gi) / |a_gi| ) 
-                dot_product = torch.dot(n_gab_unit, env_a_gi)
-                a_gi_norm = torch.norm(env_a_gi) + 1e-6
+    # Calculate vectors from CoG to foot A and foot B for all pairs
+    vec_cog_to_pe_b = robot_cog_w_expanded - p_e_b_all_pairs 
+    vec_cog_to_pe_a = robot_cog_w_expanded - p_e_a_all_pairs 
+    
+    # Calculate normal vectors (n_gab) for all faces
+    n_gab_all_pairs = torch.linalg.cross(vec_cog_to_pe_b, vec_cog_to_pe_a, dim=-1) # (num_envs, num_pairs, 3)
+    n_gab_norm = torch.norm(n_gab_all_pairs, dim=-1, keepdim=True) + 1e-6 # (num_envs, num_pairs, 1)
+    n_gab_unit = n_gab_all_pairs / n_gab_norm # (num_envs, num_pairs, 3)
 
-                # Handle potential division by zero if GIA is zero
-                if a_gi_norm.item() == 0.0:
-                    angle = torch.tensor(0.0, device=env.device, dtype=env.action_term_cfg.dtype)
-                else:
-                    cosine_angle = dot_product / a_gi_norm
-                    # Clamp to avoid NaN from floating point inaccuracies outside [-1, 1]
-                    cosine_angle = torch.clamp(cosine_angle, -1.0, 1.0)
-                    angle = torch.acos(cosine_angle) # Angle in radians
+    # Calculate dot product of n_gab_unit with a_gi_expanded for all pairs
+    dot_product_all_pairs = torch.sum(n_gab_unit * a_gi_expanded, dim=-1) # (num_envs, num_pairs)
+    
+    # Calculate norm of A_GI for all environments, expanded for pairs
+    a_gi_norm_expanded_for_pairs = torch.norm(a_gi.unsqueeze(1), dim=-1, keepdim=True) + 1e-6 # (num_envs, 1, 1)
+    a_gi_norm_expanded_for_pairs = a_gi_norm_expanded_for_pairs.expand(-1, num_relevant_pairs, -1) # (num_envs, num_pairs, 1)
+    
+    cosine_angle_all_pairs = dot_product_all_pairs / a_gi_norm_expanded_for_pairs.squeeze(-1) # (num_envs, num_pairs)
+    cosine_angle_all_pairs = torch.clamp(cosine_angle_all_pairs, -1.0, 1.0) 
+    
+    angle_all_pairs = torch.acos(cosine_angle_all_pairs) # (num_envs, num_pairs)
 
-                # Reward term for this face: [arccos((n_gab . a_gi) / |a_gi|) - pi/2] 
-                term_reward = angle - normalize_angle # normalize_angle should be pi/2 radians
-                total_angle_reward += term_reward
-        
-        rewards_per_env[i] = total_angle_reward
+    # Calculate reward term for each face
+    term_reward_all_pairs = angle_all_pairs - normalize_angle # (num_envs, num_pairs)
 
-    return rewards_per_env
+    # Create a mask for active pairs: True if both feet in a pair are in contact
+    # is_in_contact_feet is (num_envs, num_feet)
+    # adjacent_pair_indices is (num_pairs, 2)
+    # is_feet_contacted_for_pairs will be (num_envs, num_pairs, 2)
+    is_feet_contacted_for_pairs = is_in_contact_feet[:, adjacent_pair_indices] 
+    
+    # A pair is active if ALL (both) feet in that pair are in contact
+    pair_is_active_mask = is_feet_contacted_for_pairs.all(dim=-1) # (num_envs, num_pairs)
+
+    # Apply mask to rewards (set inactive pairs' rewards to zero)
+    masked_rewards_all_pairs = term_reward_all_pairs * pair_is_active_mask.float() # (num_envs, num_pairs)
+
+    # Sum rewards for all active faces for each environment
+    total_angle_reward_per_env = torch.sum(masked_rewards_all_pairs, dim=1) # (num_envs,)
+    # print(total_angle_reward_per_env)
+    # print(total_angle_reward_per_env.shape)
+
+    # Handle environments with less than 2 active contacts (no valid polygon)
+    num_active_contacts_per_env = is_in_contact_feet.sum(dim=-1) # (num_envs,)
+    
+    rewards_final = torch.where(
+        num_active_contacts_per_env < 2,
+        torch.zeros_like(total_angle_reward_per_env), # Assign 0.0 for invalid cases
+        total_angle_reward_per_env
+    )
+    
+    return rewards_final
