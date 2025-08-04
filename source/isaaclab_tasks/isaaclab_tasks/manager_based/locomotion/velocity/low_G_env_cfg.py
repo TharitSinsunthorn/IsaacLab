@@ -358,15 +358,6 @@ class RewardsCfg:
             "std": math.sqrt(0.25)
         }
     )
-    # feet_air_time = RewTerm(
-    #     func=mdp.feet_air_time,
-    #     weight=0.125,
-    #     params={
-    #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-    #         "command_name": "base_velocity",
-    #         "threshold": 1.0,
-    #     },
-    # )
     feet_air_time = RewTerm(
         func=mdp_go2.air_time_reward,
         weight=5.0,
@@ -440,12 +431,21 @@ class RewardsCfg:
             "threshold": 10.0
         },
     )
+    # contact_forces = RewTerm(
+    #     func=mdp_go2.body_frame_contact_force_z_penalty,
+    #     weight=-0.25,
+    #     params={
+    #         "threshold": 30.0,
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+    #     },
+    # )
     contact_forces = RewTerm(
-        func=mdp.contact_forces,
+        func=mdp_go2.total_contact_force_penalty,
         weight=-0.25,
         params={
+            "threshold": 40.0,
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "threshold": 50.0,
         },
     )
     feet_contact_limit = RewTerm(
@@ -461,15 +461,16 @@ class RewardsCfg:
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "threshold": 50.0,
+            "threshold": 1.0,
         },
     )
     swing_impact = RewTerm(
-        func=mdp_go2.swing_impact_penalty,
+        func=mdp_go2.swing_impact_b_penalty,
         weight=-0.5,
         params={
+            "asset_cfg": SceneEntityCfg("robot"),
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "threshold": 50.0,
+            "threshold": 20.0,
         },
     )
     energy_consumption = RewTerm(
