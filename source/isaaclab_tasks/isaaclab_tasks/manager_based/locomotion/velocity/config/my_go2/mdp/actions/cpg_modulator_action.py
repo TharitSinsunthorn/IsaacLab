@@ -157,7 +157,7 @@ class CPGQuadrupedAction(ActionTerm):
         # }
 
         self.coupling_weights = self.cfg.coupling_weights
-        self.phase_offsets = self.cfg.phase_offsets
+        self.phase_offsets = self.cfg.phase_offsets if self.cfg.phase_offsets is not None else None
         self._coupling_enable = self.cfg.coupling_enable
 
     """
@@ -266,21 +266,22 @@ class CPGQuadrupedAction(ActionTerm):
             if self._coupling_enable:
                 # Calculate coupling contribution
                 coupling_contribution = torch.zeros_like(omega_val, device=self.device) # Initialize with zeros
-                # for other_leg_name in self.cfg.legs.keys():
-                #     if other_leg_name != leg_name:
-                #         # Example of accessing (you'll need to define this indexing based on your setup):
-                #         key = f"{leg_name}_{other_leg_name}"
-                #         w_ij = self.coupling_weights.get(key, torch.zeros_like(omega_val, device=self.device))
-                #         phi_ij = self.phase_offsets.get(key, torch.zeros_like(omega_val, device=self.device))
+                if self.phase_offsets is not None:    
+                    for other_leg_name in self.cfg.legs.keys():
+                        if other_leg_name != leg_name:
+                            # Example of accessing (you'll need to define this indexing based on your setup):
+                            key = f"{leg_name}_{other_leg_name}"
+                            w_ij = self.coupling_weights.get(key, torch.zeros_like(omega_val, device=self.device))
+                            phi_ij = self.phase_offsets.get(key, torch.zeros_like(omega_val, device=self.device))
 
-                #         theta_j = self._theta[other_leg_name] # Phase of the influencing leg
-                        
-                #         # Add to the total coupling contribution for the current leg
-                #         coupling_contribution += 0.5 * (self._rx[other_leg_name] + self._ry[other_leg_name]) \
-                #             * w_ij * torch.sin(theta_j - self._theta[leg_name] - phi_ij)
+                            theta_j = self._theta[other_leg_name] # Phase of the influencing leg
+                            
+                            # Add to the total coupling contribution for the current leg
+                            coupling_contribution += 0.5 * (self._rx[other_leg_name] + self._ry[other_leg_name]) \
+                                * w_ij * torch.sin(theta_j - self._theta[leg_name] - phi_ij)
                 Ni = contact_force[:, i, 2].unsqueeze(1)  # Normal force for the current leg
                 cos_theta_expanded = torch.cos(self._theta[leg_name]).unsqueeze(1)
-                coupling_contribution += (-0.8 * Ni * cos_theta_expanded).squeeze(1)
+                coupling_contribution += (-0.7 * Ni * cos_theta_expanded).squeeze(1)
                 self._theta[leg_name] += (omega_val + coupling_contribution) * self.sim_dt
             else:
                 self._theta[leg_name] += (omega_val) * self.sim_dt
