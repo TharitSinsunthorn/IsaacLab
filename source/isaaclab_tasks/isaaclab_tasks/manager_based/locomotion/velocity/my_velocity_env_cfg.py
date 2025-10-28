@@ -20,12 +20,13 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns, ImuCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
+import isaaclab.terrains as terrain_gen
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.config.my_go2.mdp as mdp_go2
 
@@ -38,6 +39,54 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 ##
 # Scene definition
 ##
+LUNAR_DUMMY_CFG = terrain_gen.TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=10.0,
+    num_rows=10,
+    num_cols=20,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=1.6,
+    difficulty_range=(0.0, 1.0),
+    use_cache=False,
+    sub_terrains={
+        # "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.2),
+        # "boxes": terrain_gen.MeshRandomGridTerrainCfg(
+        #     proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0
+        # ),
+        # "repeated": terrain_gen.MeshRepeatedBoxesTerrainCfg(
+        #     proportion=0.1,
+        #     platform_width=0.5,
+        #     max_height_noise=0.2,
+        #     object_params_start=terrain_gen.MeshRepeatedBoxesTerrainCfg.ObjectCfg(
+        #         num_objects=20,
+        #         height=0.1,
+        #         size=(0.3, 0.5),
+        #         max_yx_angle=10.0,
+        #         degrees=True
+        #     ),
+        #     object_params_end=terrain_gen.MeshRepeatedBoxesTerrainCfg.ObjectCfg(
+        #         num_objects=50,
+        #         height=0.2,
+        #         size=(0.5, 0.5),
+        #         max_yx_angle=30.0,
+        #         degrees=True
+        #     )
+        # ),
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=0.2, noise_range=(-0.03, 0.03), noise_step=0.02, border_width=0.25
+        ),
+        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+            proportion=0.2, slope_range=(0.0, 0.34), platform_width=1.0, border_width=0.25
+        ),
+        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
+            proportion=0.2, slope_range=(0.0, 0.34), platform_width=1.0, border_width=0.25
+        ),
+        "wave": terrain_gen.HfWaveTerrainCfg(
+            proportion=0.2, amplitude_range=(0.03, 0.3), num_waves=2, border_width=0.1
+        ),
+    },
+)
 
 
 @configclass
@@ -48,8 +97,8 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
-        terrain_generator=ROUGH_TERRAINS_CFG,
-        max_init_terrain_level=5,
+        terrain_generator=LUNAR_DUMMY_CFG,
+        max_init_terrain_level=LUNAR_DUMMY_CFG.num_rows - 1,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -75,12 +124,8 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
     )
-    contact_forces = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/.*",
-        history_length=3,
-        track_air_time=True,
-        track_pose=True
-    )
+    contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True, track_pose=True)
+    imu = ImuCfg(prim_path="{ENV_REGEX_NS}/Robot/base", gravity_bias=(0, 0, 1.62))
     # lights
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",
@@ -132,40 +177,36 @@ class ActionsCfg:
             "FL": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
                 joint_names=["FL_hip_joint", "FL_thigh_joint", "FL_calf_joint"],
                 body_name="FL_foot",
-                # init_theta=np.random.uniform(-math.pi, math.pi),
-                init_theta=torch.pi/2.0,
+                init_theta=math.pi/2,
                 hip_offset=(0.19, 0.142, 0.0)
             ),
             "FR": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
                 joint_names=["FR_hip_joint", "FR_thigh_joint", "FR_calf_joint"],
                 body_name="FR_foot",
-                # init_theta=np.random.uniform(-math.pi, math.pi),
-                init_theta=torch.pi/4.0,
+                init_theta=math.pi/2,
                 hip_offset=(0.19, -0.142, 0.0)
             ),
             "RL": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
                 joint_names=["RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"],
                 body_name="RL_foot",
-                # init_theta=np.random.uniform(-math.pi, math.pi),
-                init_theta=3.0*torch.pi/4.0,
+                init_theta=math.pi/2,
                 hip_offset=(-0.2, 0.142, 0.0)
             ),
             "RR": mdp_go2.CPGQuadrupedActionCfg.LegCfg(
                 joint_names=["RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"],
                 body_name="RR_foot",
-                # init_theta=np.random.uniform(-math.pi, math.pi),
-                init_theta=0.0,
+                init_theta=math.pi/2,
                 hip_offset=(-0.2, -0.142, 0.0)
             )
         },
         # You can override global CPG parameters here
-        global_h=np.random.uniform(0.35,0.45), # Start height
+        global_h=0.3, # Start height
         global_gc=0.2, # Ground clearance for swing
-        global_gp=0.04, # Ground penetration for stance
-        global_d_step=0.1, # Step size scale
+        global_gp=0.1, # Ground penetration for stance
+        global_d_step=0.4, # Step size scale
         mu_range=(1.0, 2.0), # RL agent can choose mu between 0.8 and 1.8
-        omega_range=(0.0, 3.0), # RL agent can choose frequency
-        coupling_enable=False,
+        omega_range=(0.0, 20.0), # RL agent can choose frequency
+        coupling_enable=True,
         scale = 0.5
     )
 
@@ -188,16 +229,15 @@ class ObservationsCfg:
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
-        # contact_state = ObsTerm(
-        #     func=mdp_go2.contact_bool,
-        #     params={
-        #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-        #         "force_threshold": 1.0,
-        #     },
-        # )
+        imu_lin_acc = ObsTerm(
+            func=mdp.imu_lin_acc,
+            params={"asset_cfg": SceneEntityCfg("imu")},
+            noise=Unoise(n_min=-0.1, n_max=0.1),
+        )
         contact_force_vector = ObsTerm(
-            func=mdp_go2.local_contact_force_observation, # Your custom function
+            func=mdp_go2.body_frame_force_observation, # Your custom function
             params={
+                "asset_cfg": SceneEntityCfg("robot"),
                 "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")
             },
             noise= Unoise(n_min=-0.01, n_max=0.01),
@@ -404,24 +444,33 @@ class RewardsCfg:
             "threshold": 70.0,
         },
     )
-    feet_sync = RewTerm(
-        func=mdp_go2.GaitReward,
-        weight=10.0,
-        params={
-            "std": 0.1,
-            "max_err": 0.2,
-            "velocity_threshold": 0.0,
-            "synced_feet_pair_names": (("FL_foot", "RR_foot"), ("FR_foot", "RL_foot")),
-            "asset_cfg": SceneEntityCfg("robot"),
-            "sensor_cfg": SceneEntityCfg("contact_forces"),
-        },
-    )
+    # feet_sync = RewTerm(
+    #     func=mdp_go2.GaitReward,
+    #     weight=10.0,
+    #     params={
+    #         "std": 0.1,
+    #         "max_err": 0.2,
+    #         "velocity_threshold": 0.0,
+    #         "synced_feet_pair_names": (("FL_foot", "RR_foot"), ("FR_foot", "RL_foot")),
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #         "sensor_cfg": SceneEntityCfg("contact_forces"),
+    #     },
+    # )
     energy_consumption = RewTerm(
         func=mdp_go2.energy_penalty,
         weight=-0.01,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
         },
+    )
+    gia_reward = RewTerm(
+        func=mdp_go2.stability_margin_reward,
+        weight=0.05,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "normalize_angle": torch.pi/2
+        }
     )
 
 
@@ -486,7 +535,7 @@ class MyLocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
+        self.sim.physx.gpu_max_rigid_patch_count = 20 * 2**15
         self.sim.gravity = (0.0, 0.0, -9.81)
         # update sensor update periods
         # we tick all the sensors based on the smallest update period (physics update period)
