@@ -64,7 +64,11 @@ class MyUnitreeGo2FlatEnvCfg_PLAY(MyUnitreeGo2FlatEnvCfg):
         # post init of parent
         super().__post_init__()
 
+        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfg.Ranges(
+            lin_vel_x=(1.0, 1.0), lin_vel_y=(-0.0, 0.0), ang_vel_z=(-0.0, 0.0), heading=(-math.pi, math.pi))
+
         # make a smaller scene for play
+        self.viewer.eye = [2.5, 1.5, 0.5]
         self.scene.num_envs = 50
         self.scene.env_spacing = 2.5
         # disable randomization for play
