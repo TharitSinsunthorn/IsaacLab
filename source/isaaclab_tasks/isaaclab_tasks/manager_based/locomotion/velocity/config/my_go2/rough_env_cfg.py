@@ -6,6 +6,8 @@
 from isaaclab.utils import configclass
 
 from isaaclab_tasks.manager_based.locomotion.velocity.my_velocity_env_cfg import MyLocomotionVelocityRoughEnvCfg
+import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
+import math
 
 ##
 # Pre-defined configs
@@ -22,12 +24,12 @@ class MyUnitreeGo2RoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         self.scene.robot = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/base"
         # scale down the terrains because the robot is small
-        self.scene.terrain.terrain_generator.sub_terrains["boxes"].grid_height_range = (0.025, 0.1)
-        self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_range = (0.01, 0.06)
-        self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_step = 0.01
+        # self.scene.terrain.terrain_generator.sub_terrains["boxes"].grid_height_range = (0.025, 0.1)
+        # self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_range = (0.01, 0.06)
+        # self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_step = 0.01
 
-        # reduce action scale
-        self.actions.joint_pos.scale = 0.25
+        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfg.Ranges(
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-0.7, 0.7), ang_vel_z=(-0.4, 0.4), heading=(-math.pi, math.pi))
 
         # event
         self.events.push_robot = None
@@ -49,29 +51,35 @@ class MyUnitreeGo2RoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
 
         # override rewards
         # --task
-        self.rewards.track_lin_vel_xy_exp.weight = 1.5 # default 1.5
+        self.rewards.track_lin_vel_xy_exp.weight = 2.0 # default 1.5
         self.rewards.track_ang_vel_z_exp.weight = 0.75 # default 0.75
         self.rewards.feet_air_time = None # default 0.125
-        self.rewards.foot_clearance.weight = 0.4
+        self.rewards.foot_clearance.weight = 0.1 # default 0.1
         self.rewards.feet_stance = None
-        self.rewards.crawl_reward.weight = 0.2
-
+        self.rewards.crawl_reward = None
+        
         # -- penalties
         # body related
-        self.rewards.lin_vel_z_l2.weight = -1.0 # default -2.0
+        self.rewards.lin_vel_z_l2.weight = -2.0 # default -2.0
         self.rewards.ang_vel_xy_l2 = None # default -0.05
-        self.rewards.flat_orientation_l2.weight = -1.0 # default -2.5
-        self.rewards.body_lin_acc_l2 = None # default -5.0e-4
+        self.rewards.flat_orientation_l2.weight = -2.5 # default -0.05
+        self.rewards.body_lin_acc_l2 = None # -5.0e-4
         # joint related
         self.rewards.dof_torques_l2.weight = -1.0e-5 # default -1.0e-5
         self.rewards.dof_acc_l2.weight = -2.5e-7 # default -2.5
+        self.rewards.dof_vel_l2 = None # default -0.01
         self.rewards.dof_pos_limits.weight = -1.0 # default 0.0
         self.rewards.action_rate_l2.weight = -0.01 # default -0.01
         # foot related
-        self.rewards.undesired_contacts = None
-        self.rewards.contact_forces = None # default -0.25s
-        self.rewards.feet_contact_limit.weight = -0.3
-        self.rewards.foot_slip = None ##EDITEDz
+        #self.rewards.contact_force_var = None # default -0.1
+        self.rewards.undesired_contacts.weight = -1.0
+        self.rewards.contact_forces = None # default -0.25
+        self.rewards.feet_contact_limit = None # default -0.1
+        self.rewards.foot_slip = None # default -0.1
+        #self.rewards.swing_impact = None # default -0.1
+
+        self.rewards.energy_consumption.weight = -0.01 # default -0.01
+        self.rewards.gia_reward.weight = 0.1 # default 0.05
 
 
         # terminations
@@ -85,6 +93,7 @@ class MyUnitreeGo2RoughEnvCfg_PLAY(MyUnitreeGo2RoughEnvCfg):
         super().__post_init__()
 
         # make a smaller scene for play
+        self.viewer.eye = [2.5, 2.5, 1.5]
         self.scene.num_envs = 50
         self.scene.env_spacing = 2.5
         # spawn the robot randomly in the grid (instead of their terrain levels)
