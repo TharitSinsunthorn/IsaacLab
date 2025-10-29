@@ -173,17 +173,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         
     # Access the robot data based on the asset name used in the task config
     # This assumes your task environment has a main asset named "robot"
-    asset_cfg = SceneEntityCfg(name="robot")
-    robot = unwrapped_env.unwrapped.scene[asset_cfg.name]
+    robot = unwrapped_env.unwrapped.scene["robot"]
 
     # Get initial default joint positions (needed for calculating relative joint positions, though not used here)
     # The default positions are usually stored in the task, but we'll skip this for the deployed policy's purpose.
     
     # Evaluation parameters (matching your standalone script)
-    ROBOT_MASS = 15.0  # kg
-    # GRAVITY = 1.62    # lunar gravity or value from your env.yaml
-    GRAVITY = abs(unwrapped_env.unwrapped.sim._gravity_tensor[2].item())  # Use env gravity if available
-    print(f"[EVAL] Using gravity: {GRAVITY:.2f} m/s^2 for CoT calculation.")
+    robot_mass = torch.sum(robot.data.default_mass[0]).item()
+    gravity = abs(unwrapped_env.unwrapped.sim._gravity_tensor[2].item())  # Use env gravity if available
+    print(f"[EVAL] Using gravity: {gravity:.2f} m/s^2 for CoT calculation.")
 
     eval_total_power = 0.0
     eval_velocities = []
@@ -227,10 +225,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         v_actual = torch.linalg.norm(robot.data.root_lin_vel_b[:, 0:2], dim=1)[0].cpu().numpy()
         
         # tau: Measured joint efforts (shape [num_envs, num_joints])
-        tau = robot.data.applied_torque[:, asset_cfg.joint_ids].cpu().numpy()
-        
+        tau = robot.data.applied_torque.cpu().numpy()
         # qd: Joint velocities (shape [num_envs, num_joints])
-        qd = robot.data.joint_vel[:, asset_cfg.joint_ids].cpu().numpy()
+        qd = robot.data.joint_vel.cpu().numpy()        
 
         # Command (This is the tricky part - command is inside the observation/info)
         # Assuming the command (v_x, v_y, w_z) is the part of the observation used for command tracking
@@ -250,7 +247,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         avg_vel = np.mean(eval_velocities)
         avg_power = eval_total_power / (eval_step_count + 1)
         # Using eval_step_count + 1 to avoid division by zero at step 0
-        cot = avg_power / (ROBOT_MASS * GRAVITY * avg_vel) if avg_vel > 0.01 else float('inf')
+        cot = avg_power / (robot_mass * gravity * avg_vel) if avg_vel > 0.01 else float('inf')
         
         # Log data
         csv_writer.writerow([
