@@ -78,7 +78,9 @@ from isaaclab.managers import SceneEntityCfg
 import numpy as np
 import csv
 import os
-from datetime import datetime
+
+# Import CPG state helper
+from isaaclab_tasks.manager_based.locomotion.velocity.config.my_go2.mdp.observations import get_cpg_internal_states
 
 # PLACEHOLDER: Extension template (do not remove this comment)
 
@@ -172,12 +174,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         unwrapped_env = unwrapped_env.unwrapped # Unwrap RecordVideo wrapper
         
     # Access the robot data based on the asset name used in the task config
-    # This assumes your task environment has a main asset named "robot"
     robot = unwrapped_env.unwrapped.scene["robot"]
 
-    # Get initial default joint positions (needed for calculating relative joint positions, though not used here)
-    # The default positions are usually stored in the task, but we'll skip this for the deployed policy's purpose.
-    
     # Evaluation parameters (matching your standalone script)
     robot_mass = torch.sum(robot.data.default_mass[0]).item()
     gravity = abs(unwrapped_env.unwrapped.sim._gravity_tensor[2].item())  # Use env gravity if available
@@ -188,15 +186,34 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     eval_tracking_errors = []
     eval_step_count = 0
     
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    # Setup CSV for energy, cot, and tracking metrics
     eval_log_path = os.path.join(log_dir, "locomotion_eval", f"policy_eval.csv")
     # ensure the evaluation directory exists
     os.makedirs(os.path.dirname(eval_log_path), exist_ok=True)
-    
     eval_log_file = open(eval_log_path, "w", newline="")
     csv_writer = csv.writer(eval_log_file)
     csv_writer.writerow(["step", "vel", "tracking_error", "power", "power_avg", "cot"])
     print(f"[EVAL] Logging metrics to: {eval_log_path}")
+    
+    # Setup CSV for CPG state (one row per step, env 0)
+    cpg_log_path = os.path.join(log_dir, "locomotion_eval", "cpg_state.csv")
+    os.makedirs(os.path.dirname(cpg_log_path), exist_ok=True)
+    cpg_log_file = open(cpg_log_path, "w", newline="")
+    cpg_writer = csv.writer(cpg_log_file)
+    # Build headers using leg names if available
+    try:
+        cpg_term = None
+        for _, term in unwrapped_env.unwrapped.action_manager._terms.items():
+            if term.__class__.__name__ == "CPGQuadrupedAction":
+                cpg_term = term
+                break
+        leg_names = list(cpg_term.cfg.legs.keys()) if cpg_term is not None else ["FL", "FR", "RL", "RR"]
+    except Exception:
+        leg_names = ["FL", "FR", "RL", "RR"]
+    fields = ["rx", "rxdot", "ry", "rydot", "theta", "theta_dot", "gp"]
+    cpg_headers = [f"{ln}_{fd}" for ln in leg_names for fd in fields]
+    cpg_writer.writerow(["step"] + cpg_headers)
+    print(f"[EVAL] Logging CPG states to: {cpg_log_path}")
     # --- END Custom Evaluation Setup ---
 
     dt = env.unwrapped.step_dt
@@ -210,29 +227,20 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # run everything in inference mode
         with torch.inference_mode():
             # agent stepping
-            # Actions are PyTorch tensors with shape [num_envs, num_actions]
-            actions = policy(obs) 
-            
+            actions = policy(obs)
             # env stepping
-            # obs, rewards, dones, infos are PyTorch tensors with shape [num_envs, ...]
             obs, rewards, dones, infos = env.step(actions)
 
         # --- START Custom Evaluation Logic ---
-        
-        # NOTE: We only log data for the first environment (index 0)
         # Convert tensors to numpy arrays and select the first environment's data [0]
         # v_actual: Linear velocity magnitude in the horizontal plane
         v_actual = torch.linalg.norm(robot.data.root_lin_vel_b[:, 0:2], dim=1)[0].cpu().numpy()
-        
         # tau: Measured joint efforts (shape [num_envs, num_joints])
         tau = robot.data.applied_torque.cpu().numpy()
         # qd: Joint velocities (shape [num_envs, num_joints])
         qd = robot.data.joint_vel.cpu().numpy()        
 
-        # Command (This is the tricky part - command is inside the observation/info)
-        # Assuming the command (v_x, v_y, w_z) is the part of the observation used for command tracking
-        # This needs to match where the command is in the observation array!
-        # Based on your policy's _compute_observation, it's at indices 9:12.
+        # Based on the policy's _compute_observation, it's at indices 9:12.
         command_obs = obs[0, 9:12].cpu().numpy() 
         norm_command = np.linalg.norm(command_obs[0:2]) # Horizontal command magnitude
 
@@ -259,7 +267,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             cot
         ])
         eval_step_count += 1
-        
+
+        # Log CPG state for env 0
+        try:
+            cpg_state = get_cpg_internal_states(unwrapped_env.unwrapped)  # shape: [num_envs, 7*num_legs]
+            cpg_row = cpg_state[0].detach().cpu().tolist()
+            cpg_writer.writerow([eval_step_count] + cpg_row)
+        except Exception as e:
+            # Print once if it fails
+            if eval_step_count == 0:
+                print(f"[EVAL] CPG logging failed: {e}")
         # --- END Custom Evaluation Logic ---
         
         if args_cli.video:
@@ -290,6 +307,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     
     if eval_log_file:
         eval_log_file.close()
+    if cpg_log_file:
+        cpg_log_file.close()
     # --- END Custom Evaluation Cleanup ---
 
     # close the simulator
