@@ -47,6 +47,8 @@ from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
+from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+
 from isaaclab_tasks.manager_based.locomotion.velocity.config.my_go2.flat_env_cfg import MyUnitreeGo2FlatEnvCfg_PLAY
 
 
@@ -72,15 +74,15 @@ def main():
         env_cfg.sim.use_fabric = False
 
     # create environment
-    env = ManagerBasedRLEnv(cfg=env_cfg)
+    env_unwrapped = ManagerBasedRLEnv(cfg=env_cfg)
+    env = RslRlVecEnvWrapper(env_unwrapped, clip_actions=1.0)
 
     # run inference with the policy
     obs, _ = env.reset()
     with torch.inference_mode():
         while simulation_app.is_running():
-            action = policy(obs["policy"])
-            action = torch.clamp(action, -1.0, 1.0)
-            obs, _, _, _, _ = env.step(action)
+            action = policy(obs)
+            obs, _, _, _ = env.step(action)
 
 
 if __name__ == "__main__":
