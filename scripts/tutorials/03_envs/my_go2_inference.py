@@ -70,10 +70,6 @@ def main():
     env_cfg.sim.device = args_cli.device
     if args_cli.device == "cpu":
         env_cfg.sim.use_fabric = False
-    # env_cfg.sim.dt = 0.005
-    # env_cfg.sim.substeps = 2
-    # env_cfg.sim.decimation = 2
-    # env_cfg.actions.quadruped_action_cfg.scale = 0.5
 
     # create environment
     env = ManagerBasedRLEnv(cfg=env_cfg)
@@ -83,6 +79,7 @@ def main():
     with torch.inference_mode():
         while simulation_app.is_running():
             action = policy(obs["policy"])
+            action = torch.clamp(action, -1.0, 1.0)
             obs, _, _, _, _ = env.step(action)
 
 
