@@ -67,6 +67,7 @@ from isaaclab.envs import (
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
+from isaaclab.utils import math as math_utils
 
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit, export_policy_as_onnx
 
@@ -194,7 +195,37 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     csv_writer = csv.writer(eval_log_file)
     csv_writer.writerow(["step", "vel", "tracking_error", "power", "power_avg", "cot"])
     print(f"[EVAL] Logging metrics to: {eval_log_path}")
-    
+
+    # -- START: Setup for foot position and force logging --
+    foot_log_path = os.path.join(log_dir, "locomotion_eval", "foot_data.csv")
+    os.makedirs(os.path.dirname(foot_log_path), exist_ok=True)
+    foot_log_file = open(foot_log_path, "w", newline="")
+    foot_writer = csv.writer(foot_log_file)
+    # -- START: Robust foot data selection --
+    # Get the single contact sensor that tracks all bodies
+    contact_sensor = unwrapped_env.unwrapped.scene["contact_forces"]
+    # Define the exact foot names we want to log, in the desired order
+    target_foot_names = ["FL_foot", "FR_foot", "RL_foot", "RR_foot"]
+    # Find the indices of our target feet within the sensor's full list of bodies
+    all_body_names = contact_sensor.body_names
+    try:
+        foot_indices = [all_body_names.index(name) for name in target_foot_names]
+        foot_indices_tensor = torch.tensor(foot_indices, device=robot.device)
+        print(f"[EVAL] Found foot indices for logging: {foot_indices}")
+    except ValueError as e:
+        print(f"[EVAL] ERROR: A foot name was not found in the contact sensor's body list. {e}")
+        print(f"       Available bodies: {all_body_names}")
+        foot_indices_tensor = None # Will cause logging to be skipped
+
+    # Create headers for the CSV file
+    foot_headers = []
+    for name in target_foot_names:
+        foot_headers.extend([f"{name}_pos_x", f"{name}_pos_y", f"{name}_pos_z"])
+        foot_headers.extend([f"{name}_force_x", f"{name}_force_y", f"{name}_force_z"])
+    foot_writer.writerow(["step"] + foot_headers)
+    print(f"[EVAL] Logging foot data to: {foot_log_path}")
+    # -- END: Robust foot data selection --
+
     # Setup CSV for CPG state (one row per step, env 0)
     cpg_log_path = os.path.join(log_dir, "locomotion_eval", "cpg_state.csv")
     os.makedirs(os.path.dirname(cpg_log_path), exist_ok=True)
@@ -233,7 +264,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
         # --- START Custom Evaluation Logic ---
         # Convert tensors to numpy arrays and select the first environment's data [0]
-        # v_actual: Linear velocity magnitude in the horizontal plane
+        # v_actual: Linear velocity in the horizontal plane
         v_actual = torch.linalg.norm(robot.data.root_lin_vel_b[:, 0:2], dim=1)[0].cpu().numpy()
         # tau: Measured joint efforts (shape [num_envs, num_joints])
         tau = robot.data.applied_torque.cpu().numpy()
@@ -277,6 +308,44 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             # Print once if it fails
             if eval_step_count == 0:
                 print(f"[EVAL] CPG logging failed: {e}")
+
+        # -- START: Log foot position and force data --
+        # Only proceed if we successfully found the foot indices
+        if foot_indices_tensor is not None:
+            # Get root state for frame transformation
+            root_pos_w = robot.data.root_pos_w
+            root_quat_w = robot.data.root_quat_w
+            # Get full contact sensor data (all in world frame)
+            all_forces_w = contact_sensor.data.net_forces_w
+            all_pos_w = contact_sensor.data.pos_w
+
+            # Select only the data for the feet using the indices we found
+            foot_forces_w = all_forces_w[:, foot_indices_tensor, :]
+            foot_pos_w = all_pos_w[:, foot_indices_tensor, :]
+
+            # Transform to base frame for env 0
+            foot_data_row = []
+            for i in range(len(target_foot_names)):
+                # -- START: Corrected Frame Transformation --
+                # Get the inverse of the robot's orientation using the correct quaternion conjugate function
+                root_quat_w_inv = math_utils.quat_conjugate(root_quat_w)
+
+                # 1. Translate the world-frame foot position by the negative of the robot's root position.
+                foot_pos_w_relative = foot_pos_w[:, i, :] - root_pos_w
+                # 2. Rotate the result by the inverse orientation to get the position in the base frame.
+                #    Use the new, recommended 'quat_apply' function.
+                foot_pos_b = math_utils.quat_apply(root_quat_w_inv, foot_pos_w_relative)[0]
+
+                # Transform force vector (rotation only) using 'quat_apply'.
+                foot_force_b = math_utils.quat_apply(root_quat_w_inv, foot_forces_w[:, i, :])[0]
+                # -- END: Corrected Frame Transformation --
+
+                # Append to the row for the CSV
+                foot_data_row.extend(foot_pos_b.cpu().tolist())
+                foot_data_row.extend(foot_force_b.cpu().tolist())
+            foot_writer.writerow([eval_step_count] + foot_data_row)
+        # -- END: Log foot position and force data --
+
         # --- END Custom Evaluation Logic ---
         
         if args_cli.video:
@@ -309,6 +378,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         eval_log_file.close()
     if cpg_log_file:
         cpg_log_file.close()
+    if foot_log_file:
+        foot_log_file.close()
     # --- END Custom Evaluation Cleanup ---
 
     # close the simulator
