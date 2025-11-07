@@ -431,6 +431,10 @@ class RewardsCfg:
             "threshold": 10.0
         },
     )
+    termination_penalty = RewTerm(
+        func=mdp.is_terminated,
+        weight=-400.0
+    )
     # contact_forces = RewTerm(
     #     func=mdp_go2.body_frame_contact_force_z_penalty,
     #     weight=-0.25,
