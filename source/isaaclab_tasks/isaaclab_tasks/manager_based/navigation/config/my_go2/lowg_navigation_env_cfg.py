@@ -15,10 +15,12 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.utils import configclass
 
 import isaaclab_tasks.manager_based.navigation.mdp as mdp
-from isaaclab_tasks.manager_based.locomotion.velocity.config.my_go2.lowg_env_cfg import LowGravityUnitreeGo2RoughEnvCfg
+from isaaclab_tasks.manager_based.locomotion.velocity.config.my_go2.flat_env_cfg import (
+    LowGravityUnitreeGo2FlatEnvCfg,
+)
 
 
-LOW_LEVEL_ENV_CFG = LowGravityUnitreeGo2RoughEnvCfg()
+LOW_LEVEL_ENV_CFG = LowGravityUnitreeGo2FlatEnvCfg()
 
 
 @configclass
@@ -46,11 +48,11 @@ class EventCfg:
 class ActionsCfg:
     """Action terms for the MDP."""
 
-    pre_trained_policy_action: mdp.PreTrainedPolicyActionCfg = mdp.PreTrainedPolicyActionCfg(
+    pre_trained_policy_action: mdp.MyPreTrainedPolicyActionCfg = mdp.MyPreTrainedPolicyActionCfg(
         asset_name="robot",
-        policy_path=f"/home/srl-limb-ws2/ilab_tharit/IsaacLab/logs/rsl_rl/unitree_go2_rough_lowG/2025-05-01_20-58-13/exported/policy.pt",
-        low_level_decimation=4,
-        low_level_actions=LOW_LEVEL_ENV_CFG.actions.joint_pos,
+        policy_path=f"/home/srl-limb-ws2/ilab_tharit/IsaacLab/logs/rsl_rl/unitree_go2_flat_lowG/2025-11-06_15-55-37_free/exported/policy.pt",
+        low_level_decimation=2,
+        low_level_actions=LOW_LEVEL_ENV_CFG.actions.quadruped_action_cfg,
         low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
     )
 
@@ -138,7 +140,7 @@ class NavigationEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = LOW_LEVEL_ENV_CFG.sim.dt
         self.sim.render_interval = LOW_LEVEL_ENV_CFG.decimation
         self.sim.gravity = (0.0, 0.0, -1.62)
-        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
+        self.sim.physx.gpu_max_rigid_patch_count = 20 * 2**15
         self.decimation = LOW_LEVEL_ENV_CFG.decimation * 10
         self.episode_length_s = self.commands.pose_command.resampling_time_range[1]
 
