@@ -19,6 +19,8 @@ from isaaclab.utils.assets import check_file_path, read_file
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
+    # We need to import the CPG action term's type for the fix
+    from isaaclab_tasks.manager_based.locomotion.velocity.config.my_go2.mdp.actions import CPGQuadrupedAction
 
 
 class MyPreTrainedPolicyAction(ActionTerm):
@@ -44,6 +46,18 @@ class MyPreTrainedPolicyAction(ActionTerm):
         file_bytes = read_file(cfg.policy_path)
         self.policy = torch.jit.load(file_bytes).to(env.device).eval()
 
+        # Fix for multi-env: resize the policy's recurrent states
+        if hasattr(self.policy, "hidden_state") and hasattr(self.policy, "cell_state"):
+            # Get the original shape: (num_layers, batch_size, hidden_size)
+            h_shape = list(self.policy.hidden_state.shape)
+            c_shape = list(self.policy.cell_state.shape)
+            # Update the batch_size dimension to match the number of environments
+            h_shape[1] = self.num_envs
+            c_shape[1] = self.num_envs
+            # Re-initialize the states with the correct shape
+            self.policy.hidden_state = torch.zeros(h_shape, device=self.device)
+            self.policy.cell_state = torch.zeros(c_shape, device=self.device)
+
         self._raw_actions = torch.zeros(self.num_envs, self.action_dim, device=self.device)
 
         # prepare low level actions
@@ -56,6 +70,30 @@ class MyPreTrainedPolicyAction(ActionTerm):
                 self.low_level_actions[env.episode_length_buf == 0, :] = 0
             return self.low_level_actions
 
+        # temporarily replace that function with a new one that has direct access
+        # to the low-level CPG action term we just created.
+        original_cpg_obs_func = cfg.low_level_observations.cpg_state.func
+        def _get_cpg_internal_states_direct(e: ManagerBasedRLEnv) -> torch.Tensor:
+            cpg_action_term: CPGQuadrupedAction = self._low_level_action_term
+            # (The rest of this function is copied directly from your observations.py)
+            all_legs_cpg_states = []
+            for leg_name in cpg_action_term.cfg.legs.keys():
+                current_rx = cpg_action_term._rx[leg_name]
+                current_rxdot = cpg_action_term._rxdot[leg_name]
+                current_ry = cpg_action_term._ry[leg_name]
+                current_rydot = cpg_action_term._rydot[leg_name]
+                current_theta = cpg_action_term._theta[leg_name]
+                current_theta_dot = 2 * torch.pi * cpg_action_term._omega[leg_name]
+                current_gp = cpg_action_term._gp[leg_name]
+                leg_vector = torch.stack(
+                    [current_rx, current_rxdot, current_ry, current_rydot, current_theta, current_theta_dot, current_gp],
+                    dim=1,
+                )
+                all_legs_cpg_states.append(leg_vector)
+            return torch.cat(all_legs_cpg_states, dim=1)
+
+        cfg.low_level_observations.cpg_state.func = _get_cpg_internal_states_direct
+
         # remap some of the low level observations to internal observations
         cfg.low_level_observations.actions.func = lambda dummy_env: last_action()
         cfg.low_level_observations.actions.params = dict()
@@ -64,6 +102,9 @@ class MyPreTrainedPolicyAction(ActionTerm):
 
         # add the low level observations to the observation manager
         self._low_level_obs_manager = ObservationManager({"ll_policy": cfg.low_level_observations}, env)
+
+        cfg.low_level_observations.cpg_state.func = original_cpg_obs_func
+        cfg.low_level_observations.cpg_state.params = dict()
 
         self._counter = 0
 
@@ -94,6 +135,7 @@ class MyPreTrainedPolicyAction(ActionTerm):
         if self._counter % self.cfg.low_level_decimation == 0:
             low_level_obs = self._low_level_obs_manager.compute_group("ll_policy")
             self.low_level_actions[:] = self.policy(low_level_obs)
+            self.low_level_actions = torch.clamp(self.low_level_actions, -1.0, 1.0)
             self._low_level_action_term.process_actions(self.low_level_actions)
             self._counter = 0
         self._low_level_action_term.apply_actions()
