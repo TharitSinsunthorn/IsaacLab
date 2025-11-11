@@ -125,7 +125,7 @@ class MySceneCfg(InteractiveSceneCfg):
         mesh_prim_paths=["/World/ground"],
     )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True, track_pose=True)
-    imu = ImuCfg(prim_path="{ENV_REGEX_NS}/Robot/base", gravity_bias=(0, 0, 1.62))
+    imu = ImuCfg(prim_path="{ENV_REGEX_NS}/Robot/base", gravity_bias=(0, 0, 9.81))
     # lights
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",
