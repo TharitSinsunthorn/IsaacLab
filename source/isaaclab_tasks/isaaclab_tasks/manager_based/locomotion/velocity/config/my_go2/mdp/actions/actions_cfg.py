@@ -83,14 +83,16 @@ class CPGQuadrupedActionCfg(ActionTermCfg):
         init_theta: float = 0.0 # Default phase offset
         hip_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
+    all_weight = 6.5
     coupling_weights: dict[str, float] = {
-        "FL_FR": 4.5, "FR_FL": 4.5, # Front legs anti-phase
-        "RL_RR": 4.5, "RR_RL": 4.5, # Rear legs anti-phase
-        "FL_RR": 4.5, "RR_FL": 4.5, # Diagonal coupling (FL-RR) anti-phase
-        "FR_RL": 4.5, "RL_FR": 4.5, # Diagonal coupling (FR-RL) anti-phase
-        "FL_RL": 4.5, "RL_FL": 4.5,  # No direct front-to-rear coupling (trot is more diagonal)
-        "FR_RR": 4.5, "RR_FR": 4.5,
+        "FL_FR": all_weight, "FR_FL": all_weight, # Front legs anti-phase
+        "RL_RR": all_weight, "RR_RL": all_weight, # Rear legs anti-phase
+        "FL_RR": all_weight, "RR_FL": all_weight, # Diagonal coupling (FL-RR) anti-phase
+        "FR_RL": all_weight, "RL_FR": all_weight, # Diagonal coupling (FR-RL) anti-phase
+        "FL_RL": all_weight, "RL_FL": all_weight,  # No direct front-to-rear coupling (trot is more diagonal)
+        "FR_RR": all_weight, "RR_FR": all_weight,
     }
+    phase_offsets: dict[str, float] | None = None
     # Crawl gait
     # phase_offsets: dict[str, float] = {
     #     "FL_FR": -torch.pi, "FR_FL": torch.pi,
@@ -109,7 +111,7 @@ class CPGQuadrupedActionCfg(ActionTermCfg):
     #     "FL_RL": torch.pi, "RL_FL": torch.pi,
     #     "FR_RR": torch.pi, "RR_FR": torch.pi
     # }
-    # Gallop gait
+    # Bound gait
     # phase_offsets: dict[str, float] = {
     #     "FL_FR": 0.0, "FR_FL": 0.0,
     #     "RL_RR": 0.0, "RR_RL": 0.0,
@@ -118,15 +120,15 @@ class CPGQuadrupedActionCfg(ActionTermCfg):
     #     "FL_RL": torch.pi, "RL_FL": torch.pi,
     #     "FR_RR": torch.pi, "RR_FR": torch.pi
     # }
-    # Jump gait
-    phase_offsets: dict[str, float] = {
-        "FL_FR": 0.0, "FR_FL": 0.0,
-        "RL_RR": 0.0, "RR_RL": 0.0,
-        "FL_RR": 0.0, "RR_FL": 0.0,
-        "FR_RL": 0.0, "RL_FR": 0.0,
-        "FL_RL": 0.0, "RL_FL": 0.0,  # No direct front-to-rear coupling (trot is more diagonal)
-        "FR_RR": 0.0, "RR_FR": 0.0
-    }
+    # Pronk gait
+    # phase_offsets: dict[str, float] = {
+    #     "FL_FR": 0.0, "FR_FL": 0.0,
+    #     "RL_RR": 0.0, "RR_RL": 0.0,
+    #     "FL_RR": 0.0, "RR_FL": 0.0,
+    #     "FR_RL": 0.0, "RL_FR": 0.0,
+    #     "FL_RL": 0.0, "RL_FL": 0.0,  # No direct front-to-rear coupling (trot is more diagonal)
+    #     "FR_RR": 0.0, "RR_FR": 0.0
+    # }
     coupling_enable: bool = False
 
     # Point to the actual class
