@@ -41,7 +41,7 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 ##
 LUNAR_DUMMY_CFG = terrain_gen.TerrainGeneratorCfg(
     size=(8.0, 8.0),
-    border_width=20.0,
+    border_width=10.0,
     num_rows=10,
     num_cols=20,
     horizontal_scale=0.1,
@@ -81,6 +81,9 @@ LUNAR_DUMMY_CFG = terrain_gen.TerrainGeneratorCfg(
         ),
         "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
             proportion=0.2, slope_range=(0.0, 0.34), platform_width=1.0, border_width=0.25
+        ),
+        "wave": terrain_gen.HfWaveTerrainCfg(
+            proportion=0.2, amplitude_range=(0.03, 0.3), num_waves=2, border_width=0.1
         ),
     },
 )
@@ -126,11 +129,16 @@ class MySceneCfg(InteractiveSceneCfg):
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",
         spawn=sim_utils.DomeLightCfg(
-            intensity=75000.0,
+            intensity=5000.0,
             # texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
             # texture_file=f"/home/srl-limb-ws2/ilab_tharit/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/my_go2/texture/starmap_2020_4k.exr",
              texture_file=f"/home/srl-limb-ws2/ilab_tharit/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/my_go2/texture/earthlike_planet.hdr",
         ),
+    )
+    sun_light = AssetBaseCfg(
+        prim_path="/World/sunLight",
+        spawn=sim_utils.DistantLightCfg(intensity=8000.0, color=(1.0, 1.0, 1.0)),
+        init_state=AssetBaseCfg.InitialStateCfg(rot=(0.76041, 0.64945, 0.0, 0.0)),
     )
 
 
@@ -206,12 +214,12 @@ class ActionsCfg:
             )
         },
         # You can override global CPG parameters here
-        global_h=0.24, # Start height
-        global_gc=0.1, # Ground clearance for swing
-        global_gp=0.05, # Ground penetration for stance
-        global_d_step=0.17, # Step size scale
+        global_h=0.25, # Start height
+        global_gc=0.13, # Ground clearance for swing
+        global_gp=0.08, # Ground penetration for stance
+        global_d_step=0.3, # Step size scale
         mu_range=(1.0, 2.0), # RL agent can choose mu between 0.8 and 1.8
-        omega_range=(0.0, 20.0), # RL agent can choose frequency
+        omega_range=(0.0, 10.0), # RL agent can choose frequency
         coupling_enable=True,
         scale = 1.0
     )
@@ -507,6 +515,14 @@ class TerminationsCfg:
         func=mdp.bad_orientation,
         params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi/2},
     )  
+    thigh_contact = DoneTerm(
+        func=mdp.illegal_contact,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_thigh"), "threshold": 20.0},
+    )
+    calf_contact = DoneTerm(
+        func=mdp.illegal_contact,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"), "threshold": 20.0},
+    )
 
 
 @configclass
