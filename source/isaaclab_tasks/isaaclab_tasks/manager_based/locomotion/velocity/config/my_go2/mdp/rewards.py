@@ -251,6 +251,60 @@ def energy_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.T
     return joint_power
 
 
+class LegEnergyVariancePenalty(ManagerTermBase):
+    """Penalize the variance of total energy usage across legs over a time window.
+
+    This encourages the robot to use all legs as evenly as possible over a duration,
+    penalizing gaits that might over-rely on one or two legs for extended periods.
+    It maintains a history buffer of leg power to compute a more stable variance.
+    """
+
+    def __init__(self, cfg: "RewardTermCfg", env: "ManagerBasedRLEnv"):
+        """Initialize the term."""
+        super().__init__(cfg, env)
+        # Get the asset and the window size from the config
+        self._asset: Articulation = env.scene[cfg.params["asset_cfg"].name]
+        self.window_size: int = cfg.params["window_size"]
+        # Assuming a quadruped
+        self.num_legs = 4
+        self.joints_per_leg = self._asset.num_joints // self.num_legs
+        if self._asset.num_joints % self.num_legs != 0:
+            raise ValueError(f"Asset has {self._asset.num_joints} joints, which is not divisible by {self.num_legs}.")
+
+        # Create a buffer to store the history of power per leg
+        # Shape: (num_envs, window_size, num_legs)
+        self._power_buffer = torch.zeros(env.num_envs, self.window_size, self.num_legs, device=env.device)
+        # Index to write to in the circular buffer
+        self._buffer_idx = 0
+
+    def __call__(self, env: "ManagerBasedRLEnv", asset_cfg: SceneEntityCfg, window_size: int) -> torch.Tensor:
+        """Compute the penalty based on the variance of accumulated power."""
+        # 1. Calculate instantaneous power for each joint
+        joint_power = torch.abs(self._asset.data.applied_torque * self._asset.data.joint_vel)
+
+        # 2. Reshape and sum to get power per leg for the current step
+        # Shape: (num_envs, num_legs)
+        power_per_leg_current = joint_power.view(env.num_envs, self.num_legs, self.joints_per_leg).sum(dim=2)
+
+        # 3. Store the current power in the circular buffer
+        self._power_buffer[:, self._buffer_idx] = power_per_leg_current
+        # Move the index, wrapping around if it reaches the end
+        self._buffer_idx = (self._buffer_idx + 1) % self.window_size
+
+        # 4. Calculate the total energy used per leg over the window
+        # Summing over the time window dimension (dim=1)
+        total_energy_per_leg = torch.sum(self._power_buffer, dim=1)  # Shape: (num_envs, num_legs)
+
+        # 5. Compute the variance of this total energy across the legs
+        variance = torch.var(total_energy_per_leg, dim=1)  # Shape: (num_envs,)
+
+        return variance
+
+    def reset(self, env_ids: torch.Tensor) -> None:
+        """Reset the history buffer for the specified environments."""
+        self._power_buffer[env_ids] = 0.0
+
+
 """
 Contact Related
 """
