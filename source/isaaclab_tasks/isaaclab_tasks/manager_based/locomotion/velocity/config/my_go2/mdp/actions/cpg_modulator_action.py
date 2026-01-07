@@ -54,6 +54,11 @@ class CPGQuadrupedAction(ActionTerm):
 
         # Store the environment reference for later use
         self.env = env
+        # -- START: Get a direct reference to the contact sensor --
+        # This is a robust way to get contact forces without relying on the observation manager.
+        # It assumes a sensor named "contact_forces" exists in the scene.
+        self._contact_sensor: ContactSensor = self.env.scene["contact_forces"]
+        # -- END: Get a direct reference to the contact sensor --
 
         # Store CPG dynamics constant (alpha from paper)
         self.cpg_alpha = self.cfg.cpg_alpha
@@ -189,30 +194,22 @@ class CPGQuadrupedAction(ActionTerm):
         self._raw_actions[:] = actions
         self._processed_actions[:] = self.raw_actions * self._scale
 
-        # Get contact forces from observation manager
-        obs_flat = self.env.observation_manager._obs_buffer["policy"]  # shape: (num_envs, total_obs_dim)
-
-        # Find index of the term in the flattened vector
-        term_names = self.env.observation_manager._group_obs_term_names["policy"]
-        term_shapes = self.env.observation_manager._group_obs_term_dim["policy"]
-
-        # Compute offset
-        start_idx = 0
-        for name, shape in zip(term_names, term_shapes):
-            if name == "contact_force_vector":
-                break
-            start_idx += int(np.prod(shape))
-
-        end_idx = start_idx + int(np.prod((4, 3)))  # or use shape directly
-        contact_force_flat = obs_flat[:, start_idx:end_idx]  # shape: (num_envs, 12)
-        contact_force = contact_force_flat.view(-1, 4, 3)    # shape: (num_envs, 4, 3)
+        # -- START: Get contact forces in the local sensor frame --
+        # This mimics the logic from `local_contact_force_observation`.
+        # 1. Get world-frame forces and sensor orientations.
+        forces_w = self._contact_sensor.data.net_forces_w
+        sensor_quats_w = self._contact_sensor.data.quat_w
+        # 2. Transform world forces into the local frame of each sensor (foot).
+        # The shape is (num_envs, num_bodies, 3), which is what we need.
+        contact_force_local = math_utils.quat_apply_inverse(sensor_quats_w, forces_w)
+        # -- END: Get contact forces in the local sensor frame --
 
 
         # --- Map raw RL actions to CPG parameters ---
         # Assuming actions are ordered per leg: [delta_mux_FL, delta_muy_FL, delta_omega_FL, delta_mu_FR, ...]
         action_idx_offset = 0
         for leg_name in self.cfg.legs.keys():
-            # Extract actions for current leg (3 values: delta_mux, delta_muy delta_omega)
+            # Extract actions for current leg (3 values: delta_mux, delta_muy, delta_omega)
             delta_mux = self._processed_actions[:, action_idx_offset]
             delta_muy = self._processed_actions[:, action_idx_offset + 1]
             delta_omega = self._processed_actions[:, action_idx_offset + 2]
@@ -279,7 +276,11 @@ class CPGQuadrupedAction(ActionTerm):
                             # Add to the total coupling contribution for the current leg
                             coupling_contribution += 0.5 * (self._rx[other_leg_name] + self._ry[other_leg_name]) \
                                 * w_ij * torch.sin(theta_j - self._theta[leg_name] - phi_ij)
-                Ni = contact_force[:, i, 2].unsqueeze(1)  # Normal force for the current leg
+                
+                # Use the norm (magnitude) of the contact force vector instead of just the z-axis
+                # contact_force_local[:, i, :] is the (num_envs, 3) force vector for leg i
+                Ni = torch.norm(contact_force_local[:, i, :], dim=1).unsqueeze(1)
+                
                 cos_theta_expanded = torch.cos(self._theta[leg_name]).unsqueeze(1)
                 coupling_contribution += (-0.7 * Ni * cos_theta_expanded).squeeze(1)
                 self._theta[leg_name] += (omega_val + coupling_contribution) * self.sim_dt
