@@ -193,7 +193,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     os.makedirs(os.path.dirname(eval_log_path), exist_ok=True)
     eval_log_file = open(eval_log_path, "w", newline="")
     csv_writer = csv.writer(eval_log_file)
-    csv_writer.writerow(["step", "vel", "tracking_error", "power", "power_avg", "cot"])
+    csv_writer.writerow(["step", "vel", "tracking_error", "power", "power_avg", "cot", "ang_vel_x", "ang_vel_y", "ang_vel_z"])
     print(f"[EVAL] Logging metrics to: {eval_log_path}")
 
     # -- START: Setup for foot position and force logging --
@@ -266,6 +266,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # Convert tensors to numpy arrays and select the first environment's data [0]
         # v_actual: Linear velocity in the horizontal plane
         v_actual = torch.linalg.norm(robot.data.root_lin_vel_b[:, 0:2], dim=1)[0].cpu().numpy()
+        # ang_vel_b: Angular velocity in the base frame
+        ang_vel_b = robot.data.root_ang_vel_b[0].cpu().numpy()
         # tau: Measured joint efforts (shape [num_envs, num_joints])
         tau = robot.data.applied_torque.cpu().numpy()
         # qd: Joint velocities (shape [num_envs, num_joints])
@@ -295,7 +297,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             tracking_error,
             power,
             avg_power,
-            cot
+            cot,
+            ang_vel_b[0],
+            ang_vel_b[1],
+            ang_vel_b[2],
         ])
         eval_step_count += 1
 
