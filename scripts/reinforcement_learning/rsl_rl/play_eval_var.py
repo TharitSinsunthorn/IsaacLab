@@ -90,6 +90,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     
+    # -- Set the episode duration for each round here --
+    # This determines how long each velocity evaluation runs in seconds.
+    # For example, setting it to 50.0 seconds.
+    env_cfg.episode_length_s = 30.0
+    
     # Ensure only one environment is run for simple evaluation logging
     # Note: If you want to run multiple envs, you must adapt the logging to handle the batch data.
     if env_cfg.scene.num_envs > 1:

@@ -8,6 +8,7 @@ from isaaclab.utils import configclass
 from isaaclab_tasks.manager_based.locomotion.velocity.my_velocity_env_cfg import MyLocomotionVelocityRoughEnvCfg
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import math
+from isaaclab import sim as sim_utils
 
 ##
 # Pre-defined configs
@@ -29,7 +30,7 @@ class MyUnitreeGo2RoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         # self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_step = 0.01
 
         self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-0.7, 0.7), ang_vel_z=(-0.4, 0.4), heading=(-math.pi, math.pi))
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-0.7, 0.7), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi))
 
         # event
         self.events.push_robot = None
@@ -61,8 +62,8 @@ class MyUnitreeGo2RoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         # -- penalties
         # body related
         self.rewards.lin_vel_z_l2.weight = -2.0 # default -2.0
-        self.rewards.ang_vel_xy_l2 = None # default -0.05
-        self.rewards.flat_orientation_l2.weight = -2.5 # default -0.05
+        self.rewards.ang_vel_xy_l2.weight = -0.2 # default -0.05
+        self.rewards.flat_orientation_l2.weight = -3.0 # default -0.05
         self.rewards.body_lin_acc_l2 = None # -5.0e-4
         # joint related
         self.rewards.dof_torques_l2.weight = -1.0e-5 # default -1.0e-5
@@ -75,7 +76,7 @@ class MyUnitreeGo2RoughEnvCfg(MyLocomotionVelocityRoughEnvCfg):
         self.rewards.undesired_contacts.weight = -1.0
         self.rewards.contact_forces = None # default -0.25
         self.rewards.feet_contact_limit = None # default -0.1
-        self.rewards.foot_slip = None # default -0.1
+        self.rewards.foot_slip.weight = -0.1 # default -0.1
         #self.rewards.swing_impact = None # default -0.1
 
         self.rewards.energy_consumption.weight = -0.01 # default -0.01
@@ -93,7 +94,7 @@ class MyUnitreeGo2RoughEnvCfg_PLAY(MyUnitreeGo2RoughEnvCfg):
         super().__post_init__()
 
         # make a smaller scene for play
-        self.viewer.eye = [2.5, 2.5, 1.5]
+        self.viewer.eye = [0.5, -3.0, 0.2]
         self.scene.num_envs = 50
         self.scene.env_spacing = 2.5
         # spawn the robot randomly in the grid (instead of their terrain levels)
