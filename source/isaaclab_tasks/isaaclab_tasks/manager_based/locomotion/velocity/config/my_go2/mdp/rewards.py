@@ -235,6 +235,20 @@ def joint_torques_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> 
     return torch.linalg.norm((asset.data.applied_torque), dim=1)
 
 
+def gravity_scaled_joint_torques_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize joint torques applied on the articulation using L2 squared kernel.
+
+    NOTE: Only the joints configured in :attr:`asset_cfg.joint_ids` will have their joint torques contribute to the term.
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: Articulation = env.scene[asset_cfg.name]
+    gravity_vec = torch.tensor(env.sim.physics_sim_view.get_gravity(), device=env.device)
+    gravity_mag = torch.norm(gravity_vec)
+    # Avoid division by zero if gravity is 0 (e.g. deep space)
+    gravity_mag = torch.clamp(gravity_mag, min=0.1)
+    return torch.sum(torch.square(asset.data.applied_torque[:, asset_cfg.joint_ids]), dim=1) / gravity_mag**2
+
+
 def joint_velocity_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Penalize joint velocities on the articulation."""
     # extract the used quantities (to enable type-hinting)
@@ -249,6 +263,26 @@ def energy_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.T
     joint_torques = asset.data.applied_torque # Shape: (num_envs, num_joints)
     joint_power = torch.sum(torch.abs(joint_torques * joint_vel), dim=1) # Shape: (num_envs,)
     return joint_power
+
+
+def gravity_scaled_energy_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """
+    Computes an energy penalty based on mechanical power, normalized by gravity.
+    
+    Formula: Reward = - (sum(|torque * vel|) / g)
+    This ensures the agent cares about efficiency equally on Earth (g=9.81) and Moon (g=1.62).
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    joint_vel = asset.data.joint_vel
+    joint_torques = asset.data.applied_torque
+    raw_power = torch.sum(torch.abs(joint_torques * joint_vel), dim=1)
+    
+    gravity_vec = torch.tensor(env.sim.physics_sim_view.get_gravity(), device=env.device)
+    gravity_mag = torch.norm(gravity_vec)
+    # Avoid division by zero if gravity is 0 (e.g. deep space)
+    gravity_mag = torch.clamp(gravity_mag, min=0.1)
+    scaled_power = raw_power / gravity_mag
+    return scaled_power
 
 
 class LegEnergyVariancePenalty(ManagerTermBase):
@@ -622,3 +656,42 @@ def stability_margin_reward(
     )
     
     return rewards_final
+def leg_energy_variance_penalty(
+    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg
+) -> torch.Tensor:
+    """Penalize high variance in energy consumption across legs."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    
+    # Cache leg indices if not present
+    if not hasattr(leg_energy_variance_penalty, "leg_indices"):
+        leg_prefixes = ["FL", "FR", "RL", "RR"]
+        leg_indices = []
+        all_names = asset.joint_names
+        for prefix in leg_prefixes:
+            indices = [i for i, name in enumerate(all_names) if name.startswith(prefix)]
+            leg_indices.append(indices)
+        leg_energy_variance_penalty.leg_indices = leg_indices
+        
+    leg_indices = leg_energy_variance_penalty.leg_indices # List of lists of ints
+    
+    # Calculate Power: P = |tau * qd|
+    power = torch.abs(asset.data.applied_torque * asset.data.joint_vel)
+    
+    leg_powers = []
+    for indices in leg_indices:
+        # Sum power for this leg (sum over joints)
+        if len(indices) > 0:
+            p_leg = torch.sum(power[:, indices], dim=1)
+        else:
+            p_leg = torch.zeros(power.shape[0], device=power.device)
+        leg_powers.append(p_leg)
+        
+    # Stack: (num_envs, 4)
+    leg_powers_tensor = torch.stack(leg_powers, dim=1)
+    
+    # Calculate variance across legs (dim 1)
+    # correction=0 for biased estimator or default (1) for unbiased. 
+    # Usually doesn't matter for optimization, but let's stick to default.
+    variance = torch.var(leg_powers_tensor, dim=1)
+    
+    return variance
