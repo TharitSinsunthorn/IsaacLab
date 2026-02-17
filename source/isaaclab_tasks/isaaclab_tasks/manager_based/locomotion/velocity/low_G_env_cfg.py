@@ -33,7 +33,6 @@ import isaaclab_tasks.manager_based.locomotion.velocity.config.my_go2.mdp as mdp
 ##
 # Pre-defined configs
 ##
-from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 
 
 ##
@@ -124,7 +123,9 @@ class MySceneCfg(InteractiveSceneCfg):
         mesh_prim_paths=["/World/ground"],
     )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True, track_pose=True)
-    imu = ImuCfg(prim_path="{ENV_REGEX_NS}/Robot/base", gravity_bias=(0, 0, 1.62))
+    # Note: We set bias to 0. Since gravity is randomized, we cannot use a fixed bias.
+    # The IMU will report the full proper acceleration (including gravity).
+    imu = ImuCfg(prim_path="{ENV_REGEX_NS}/Robot/base", gravity_bias=(0.0, 0.0, 0.0))
     # lights
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",
@@ -336,6 +337,18 @@ class EventCfg:
         },
     )
 
+    randomize_gravity_on_reset = EventTerm(
+        func=mdp.randomize_physics_scene_gravity,
+        mode="reset",
+        params={
+            "operation": "abs",
+            "distribution": "uniform",
+            # The range for the z-component of gravity.
+            # Lower bound is Mars gravity, upper bound is Moon gravity.
+            "gravity_distribution_params": ([0.0, 0.0, -6.0], [0.0, 0.0, -1.0]),
+        },
+    )
+
     # interval
     push_robot = EventTerm(
         func=mdp.push_by_setting_velocity,
@@ -482,11 +495,18 @@ class RewardsCfg:
         params={
             "asset_cfg": SceneEntityCfg("robot"),
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "threshold": 20.0,
+            "threshold": 10.0,
         },
     )
-    energy_consumption = RewTerm(
-        func=mdp_go2.energy_penalty,
+    # energy_consumption = RewTerm(
+    #     func=mdp_go2.energy_penalty,
+    #     weight=-0.01,
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+    #     },
+    # )
+    energy_scaling = RewTerm(
+        func=mdp_go2.gravity_scaled_energy_penalty,
         weight=-0.01,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
@@ -513,7 +533,7 @@ class TerminationsCfg:
     )
     robot_on_the_ground = DoneTerm(
         func=mdp.bad_orientation,
-        params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi/2},
+        params={"asset_cfg": SceneEntityCfg("robot"), "limit_angle": math.pi/4},
     )  
     thigh_contact = DoneTerm(
         func=mdp.illegal_contact,
